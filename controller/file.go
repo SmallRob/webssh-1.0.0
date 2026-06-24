@@ -284,6 +284,237 @@ func FileList(c *gin.Context) *ResponseBody {
 	return &responseBody
 }
 
+// DeleteFileOrDir 删除文件或目录
+func DeleteFileOrDir(c *gin.Context) *ResponseBody {
+	var (
+		sshClient core.SSHClient
+		err       error
+	)
+	responseBody := ResponseBody{Msg: "success"}
+	defer TimeCost(time.Now(), &responseBody)
+	path := strings.TrimSpace(c.DefaultQuery("path", ""))
+	sshInfo := c.DefaultQuery("sshInfo", "")
+	if path == "" {
+		responseBody.Msg = "path is required"
+		return &responseBody
+	}
+	if sshClient, err = core.DecodedMsgToSSHClient(sshInfo); err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	if err := sshClient.CreateSftp(); err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	defer sshClient.Close()
+	if err := sshClient.DeleteFile(path); err != nil {
+		responseBody.Msg = err.Error()
+	}
+	return &responseBody
+}
+
+// RenameFileOrDir 重命名文件或目录
+func RenameFileOrDir(c *gin.Context) *ResponseBody {
+	var (
+		sshClient core.SSHClient
+		err       error
+	)
+	responseBody := ResponseBody{Msg: "success"}
+	defer TimeCost(time.Now(), &responseBody)
+	oldPath := strings.TrimSpace(c.DefaultQuery("oldPath", ""))
+	newPath := strings.TrimSpace(c.DefaultQuery("newPath", ""))
+	sshInfo := c.DefaultQuery("sshInfo", "")
+	if oldPath == "" || newPath == "" {
+		responseBody.Msg = "oldPath and newPath are required"
+		return &responseBody
+	}
+	if sshClient, err = core.DecodedMsgToSSHClient(sshInfo); err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	if err := sshClient.CreateSftp(); err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	defer sshClient.Close()
+	if err := sshClient.RenameFile(oldPath, newPath); err != nil {
+		responseBody.Msg = err.Error()
+	}
+	return &responseBody
+}
+
+// CreateNewFolder 创建新文件夹
+func CreateNewFolder(c *gin.Context) *ResponseBody {
+	var (
+		sshClient core.SSHClient
+		err       error
+	)
+	responseBody := ResponseBody{Msg: "success"}
+	defer TimeCost(time.Now(), &responseBody)
+	path := strings.TrimSpace(c.DefaultQuery("path", ""))
+	sshInfo := c.DefaultQuery("sshInfo", "")
+	if path == "" {
+		responseBody.Msg = "path is required"
+		return &responseBody
+	}
+	if sshClient, err = core.DecodedMsgToSSHClient(sshInfo); err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	if err := sshClient.CreateSftp(); err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	defer sshClient.Close()
+	if err := sshClient.Mkdirs(path); err != nil {
+		responseBody.Msg = err.Error()
+	}
+	return &responseBody
+}
+
+// ReadFileContent 读取文件内容
+func ReadFileContent(c *gin.Context) *ResponseBody {
+	var (
+		sshClient core.SSHClient
+		err       error
+	)
+	responseBody := ResponseBody{Msg: "success"}
+	defer TimeCost(time.Now(), &responseBody)
+	path := strings.TrimSpace(c.DefaultQuery("path", ""))
+	sshInfo := c.DefaultQuery("sshInfo", "")
+	if path == "" {
+		responseBody.Msg = "path is required"
+		return &responseBody
+	}
+	if sshClient, err = core.DecodedMsgToSSHClient(sshInfo); err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	if err := sshClient.CreateSftp(); err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	defer sshClient.Close()
+
+	fileInfo, err := sshClient.GetFileInfo(path)
+	if err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+
+	content, err := sshClient.ReadFile(path)
+	if err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+
+	responseBody.Data = gin.H{
+		"content":  string(content),
+		"info":     fileInfo,
+	}
+	return &responseBody
+}
+
+// SaveFileContent 保存文件内容
+func SaveFileContent(c *gin.Context) *ResponseBody {
+	var (
+		sshClient core.SSHClient
+		err       error
+	)
+	responseBody := ResponseBody{Msg: "success"}
+	defer TimeCost(time.Now(), &responseBody)
+
+	path := c.PostForm("path")
+	sshInfo := c.PostForm("sshInfo")
+	content := c.PostForm("content")
+
+	if path == "" {
+		responseBody.Msg = "path is required"
+		return &responseBody
+	}
+	if sshClient, err = core.DecodedMsgToSSHClient(sshInfo); err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	if err := sshClient.CreateSftp(); err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	defer sshClient.Close()
+	if err := sshClient.SaveFile(path, []byte(content)); err != nil {
+		responseBody.Msg = err.Error()
+	}
+	return &responseBody
+}
+
+// SearchFiles 搜索文件
+func SearchFiles(c *gin.Context) *ResponseBody {
+	var (
+		sshClient core.SSHClient
+		err       error
+	)
+	responseBody := ResponseBody{Msg: "success"}
+	defer TimeCost(time.Now(), &responseBody)
+	keyword := strings.TrimSpace(c.DefaultQuery("keyword", ""))
+	rootPath := strings.TrimSpace(c.DefaultQuery("path", "/"))
+	sshInfo := c.DefaultQuery("sshInfo", "")
+	if keyword == "" {
+		responseBody.Msg = "keyword is required"
+		return &responseBody
+	}
+	if sshClient, err = core.DecodedMsgToSSHClient(sshInfo); err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	if err := sshClient.CreateSftp(); err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	defer sshClient.Close()
+	results, err := sshClient.SearchFiles(rootPath, keyword)
+	if err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	responseBody.Data = gin.H{
+		"results": results,
+		"count":   len(results),
+	}
+	return &responseBody
+}
+
+// GetFileInfo 获取文件信息
+func GetFileInfo(c *gin.Context) *ResponseBody {
+	var (
+		sshClient core.SSHClient
+		err       error
+	)
+	responseBody := ResponseBody{Msg: "success"}
+	defer TimeCost(time.Now(), &responseBody)
+	path := strings.TrimSpace(c.DefaultQuery("path", ""))
+	sshInfo := c.DefaultQuery("sshInfo", "")
+	if path == "" {
+		responseBody.Msg = "path is required"
+		return &responseBody
+	}
+	if sshClient, err = core.DecodedMsgToSSHClient(sshInfo); err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	if err := sshClient.CreateSftp(); err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	defer sshClient.Close()
+	fileInfo, err := sshClient.GetFileInfo(path)
+	if err != nil {
+		responseBody.Msg = err.Error()
+		return &responseBody
+	}
+	responseBody.Data = fileInfo
+	return &responseBody
+}
+
 // 自动检测home目录
 func detectHomeDir(sftpClient *sftp.Client, username string) string {
 	// 1. 尝试获取当前工作目录

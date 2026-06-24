@@ -37,5 +37,60 @@ export default {
     clickSelectFile: '点击选择文件',
     clickSelectFolder: '点击选择文件夹',
     uploadFile: '上传文件',
-    uploadFolder: '上传文件夹'
+    uploadFolder: '上传文件夹',
+    browserNotSupported: '您的浏览器不支持此操作',
+    homePath: '主目录',
+
+    // File Management
+    fileManagement: '文件管理',
+    home: '主目录',
+    upDirectory: '上级目录',
+    refresh: '刷新',
+    newFolder: '新建文件夹',
+    search: '搜索',
+    edit: '编辑',
+    delete: '删除',
+    rename: '重命名',
+    Actions: '操作',
+    currentPath: '当前路径',
+    enterFolderName: '请输入文件夹名称',
+    folderCreated: '文件夹创建成功',
+    createFolderError: '创建文件夹失败',
+    enterNewName: '请输入新名称',
+    renameSuccess: '重命名成功',
+    renameError: '重命名失败',
+    deleteConfirm: '确定要删除 {name} 吗？',
+    deleteSuccess: '删除成功',
+    deleteError: '删除失败',
+    warning: '警告',
+
+    // Search
+    searchPlaceholder: '输入文件名搜索...',
+    searchResults: '搜索结果',
+    clear: '清除',
+    noResults: '未找到匹配文件',
+    enterKeyword: '请输入搜索关键词',
+    searchError: '搜索失败',
+
+    // Editor
+    preview: '预览',
+    save: '保存',
+    download: '下载',
+    editorPlaceholder: '在此编辑文件内容...',
+    lines: '行数',
+    characters: '字符数',
+    unsaved: '未保存',
+    loadFileError: '加载文件失败',
+    noChanges: '没有更改',
+    saveSuccess: '保存成功',
+    saveError: '保存失败',
+    unsavedChangesConfirm: '文件有未保存的更改，是否保存？',
+    saveAndClose: '保存并关闭',
+    discardChanges: '放弃更改',
+    homeNotReady: '主目录尚未加载',
+
+    // Terminal
+    webSSHConsole: 'WebSSH Console',
+    github: 'GitHub',
+    toggleSFTP: 'Toggle SFTP'
 }

@@ -11,6 +11,7 @@ const state = () => ({
     sshList: Object.prototype.hasOwnProperty.call(localStorage, 'sshList') ? localStorage.getItem('sshList') : null,
     termList: [],
     currentTab: {},
+    currentPath: '/',
     language: getLanguage()
 })
 

@@ -100,6 +100,27 @@ func main() {
 		file.GET("/progress", func(c *gin.Context) {
 			controller.UploadProgressWs(c)
 		})
+		file.GET("/delete", func(c *gin.Context) {
+			c.JSON(200, controller.DeleteFileOrDir(c))
+		})
+		file.GET("/rename", func(c *gin.Context) {
+			c.JSON(200, controller.RenameFileOrDir(c))
+		})
+		file.GET("/mkdir", func(c *gin.Context) {
+			c.JSON(200, controller.CreateNewFolder(c))
+		})
+		file.GET("/read", func(c *gin.Context) {
+			c.JSON(200, controller.ReadFileContent(c))
+		})
+		file.POST("/save", func(c *gin.Context) {
+			c.JSON(200, controller.SaveFileContent(c))
+		})
+		file.GET("/search", func(c *gin.Context) {
+			c.JSON(200, controller.SearchFiles(c))
+		})
+		file.GET("/info", func(c *gin.Context) {
+			c.JSON(200, controller.GetFileInfo(c))
+		})
 	}
 
 	// --- Static Files & SPA Frontend ---

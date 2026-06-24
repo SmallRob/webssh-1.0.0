@@ -1,12 +1,12 @@
 <template>
     <div class="file-list-wrapper">
-        <div class="sftp-title">SFTP文件管理</div>
+        <div class="sftp-title">SFTP{{ $t('fileManagement') }}</div>
         <div class="file-header">
-            <el-input class="path-input" v-model="currentPath" size="small" @keyup.enter.native="getFileList()" @blur="getFileList" placeholder="当前路径..."></el-input>
+            <el-input class="path-input" v-model="currentPath" size="small" @keyup.enter.native="getFileList()" @blur="getFileList" :placeholder="$t('currentPath')"></el-input>
             <el-button-group>
-                <el-button type="primary" size="small" icon="el-icon-s-home" @click="goToHome()" title="主目录"></el-button>
-                <el-button type="primary" size="small" icon="el-icon-arrow-up" @click="upDirectory()" title="返回上级目录"></el-button>
-                <el-button type="primary" size="small" icon="el-icon-refresh" @click="getFileList()" title="刷新当前目录"></el-button>
+                <el-button type="primary" size="small" icon="el-icon-s-home" @click="goToHome()" :title="$t('home')"></el-button>
+                <el-button type="primary" size="small" icon="el-icon-arrow-up" @click="upDirectory()" :title="$t('upDirectory')"></el-button>
+                <el-button type="primary" size="small" icon="el-icon-refresh" @click="getFileList()" :title="$t('refresh')"></el-button>
                 <el-dropdown @click="openUploadDialog()" @command="handleUploadCommand" size="small">
                     <el-button type="primary" size="small" icon="el-icon-upload"></el-button>
                     <el-dropdown-menu slot="dropdown">
@@ -14,6 +14,8 @@
                         <el-dropdown-item command="folder">{{ $t('uploadFolder') }}</el-dropdown-item>
                     </el-dropdown-menu>
                 </el-dropdown>
+                <el-button type="primary" size="small" icon="el-icon-folder-add" @click="showNewFolderDialog" :title="$t('newFolder')"></el-button>
+                <el-button type="primary" size="small" icon="el-icon-search" @click="showSearchPanel = !showSearchPanel" :title="$t('search')"></el-button>
             </el-button-group>
         </div>
 
@@ -24,8 +26,28 @@
                 <div class="el-upload__tip" slot="tip">{{ this.uploadTip }}</div>
             </el-upload>
         </el-dialog>
-        
-        <el-table :data="fileList" class="file-table" @row-click="rowClick" height="100%">
+
+        <el-dialog :title="$t('newFolder')" :visible.sync="newFolderVisible" append-to-body width="30%">
+            <el-input v-model="newFolderName" :placeholder="$t('enterFolderName')"></el-input>
+            <span slot="footer" class="dialog-footer">
+                <el-button @click="newFolderVisible = false">{{ $t('Cancel') }}</el-button>
+                <el-button type="primary" @click="createNewFolder">{{ $t('OK') }}</el-button>
+            </span>
+        </el-dialog>
+
+        <el-dialog :title="$t('rename')" :visible.sync="renameDialogVisible" append-to-body width="30%">
+            <el-input v-model="newName" :placeholder="$t('enterNewName')"></el-input>
+            <span slot="footer" class="dialog-footer">
+                <el-button @click="renameDialogVisible = false">{{ $t('Cancel') }}</el-button>
+                <el-button type="primary" @click="confirmRename">{{ $t('OK') }}</el-button>
+            </span>
+        </el-dialog>
+
+        <div v-if="showSearchPanel" class="search-panel">
+            <FileSearch @navigate="handleSearchNavigate" @open-file="handleSearchOpenFile" />
+        </div>
+
+        <el-table :data="fileList" class="file-table" @row-click="rowClick" @row-contextmenu="showContextMenu" height="100%">
             <el-table-column
                 :label="$t('Name')"
                 width="140"
@@ -37,16 +59,57 @@
             </el-table-column>
             <el-table-column :label="$t('Size')" prop="Size" width="80"></el-table-column>
             <el-table-column :label="$t('ModifiedTime')" prop="ModifyTime" width="120" sortable></el-table-column>
+            <el-table-column :label="$t('Actions')" width="60" align="center">
+                <template slot-scope="scope">
+                    <el-dropdown trigger="click" @command="(cmd) => handleFileCommand(cmd, scope.row)">
+                        <el-button size="mini" type="text" icon="el-icon-more"></el-button>
+                        <el-dropdown-menu slot="dropdown">
+                            <el-dropdown-item command="edit" v-if="!scope.row.IsDir">
+                                <i class="el-icon-edit"></i> {{ $t('edit') }}
+                            </el-dropdown-item>
+                            <el-dropdown-item command="download" v-if="!scope.row.IsDir">
+                                <i class="el-icon-download"></i> {{ $t('download') }}
+                            </el-dropdown-item>
+                            <el-dropdown-item command="rename">
+                                <i class="el-icon-edit-outline"></i> {{ $t('rename') }}
+                            </el-dropdown-item>
+                            <el-dropdown-item command="delete" divided>
+                                <i class="el-icon-delete" style="color: #f56c6c;"></i> <span style="color: #f56c6c;">{{ $t('delete') }}</span>
+                            </el-dropdown-item>
+                        </el-dropdown-menu>
+                    </el-dropdown>
+                </template>
+            </el-table-column>
         </el-table>
+
+        <div ref="contextMenu" v-show="contextMenuVisible" class="context-menu" :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }">
+            <div class="context-menu-item" @click="handleContextCommand('edit')" v-if="!contextMenuRow.IsDir">
+                <i class="el-icon-edit"></i> {{ $t('edit') }}
+            </div>
+            <div class="context-menu-item" @click="handleContextCommand('download')" v-if="!contextMenuRow.IsDir">
+                <i class="el-icon-download"></i> {{ $t('download') }}
+            </div>
+            <div class="context-menu-item" @click="handleContextCommand('rename')">
+                <i class="el-icon-edit-outline"></i> {{ $t('rename') }}
+            </div>
+            <div class="context-menu-item" @click="handleContextCommand('delete')" style="color: #f56c6c;">
+                <i class="el-icon-delete"></i> {{ $t('delete') }}
+            </div>
+        </div>
+
+        <FileEditor v-model="editorVisible" :filePath="editingFilePath" @saved="getFileList" />
     </div>
 </template>
 
 <script>
-import { fileList } from '@/api/file'
+import { fileList, deleteFile, renameFile, createFolder } from '@/api/file'
 import { mapState } from 'vuex'
+import FileEditor from './FileEditor.vue'
+import FileSearch from './FileSearch.vue'
 
 export default {
     name: 'FileList',
+    components: { FileEditor, FileSearch },
     data() {
         return {
             uploadVisible: false,
@@ -58,17 +121,32 @@ export default {
             uploadTip: '',
             progressPercent: 0,
             initialRedirectDone: false,
-            homePath: ''
+            homePath: '',
+            showSearchPanel: false,
+            newFolderVisible: false,
+            newFolderName: '',
+            renameDialogVisible: false,
+            newName: '',
+            renamingRow: null,
+            contextMenuVisible: false,
+            contextMenuX: 0,
+            contextMenuY: 0,
+            contextMenuRow: {},
+            editorVisible: false,
+            editingFilePath: ''
         }
     },
     mounted() {
-        // 组件挂载时，currentPath 为空或/，自动拉取
         if (!this.currentPath || this.currentPath === '/') {
             this.getFileList()
         }
+        document.addEventListener('click', this.hideContextMenu)
+    },
+    beforeDestroy() {
+        document.removeEventListener('click', this.hideContextMenu)
     },
     computed: {
-        ...mapState(['currentTab']), // currentTab may be deprecated but keeping for now
+        ...mapState(['currentTab']),
         sshInfoReady() {
             return this.$store.state.sshInfo && this.$store.state.sshInfo.hostname;
         },
@@ -83,14 +161,12 @@ export default {
         }
     },
     watch: {
-        // Watch for sshInfo to become available
         sshInfoReady(newValue, oldValue) {
             if (newValue && !oldValue) {
                 this.getFileList();
             }
         },
         currentTab: function() {
-            // This logic might need adjustment if multi-tab is re-enabled
             this.fileList = []
             this.currentPath = this.currentTab && this.currentTab.path ? this.currentTab.path : '/';
         }
@@ -103,7 +179,7 @@ export default {
                     this.getFileList();
                 }
             } else {
-                this.$message.warning('主目录信息尚不可用，请刷新重试。');
+                this.$message.warning(this.$t('homeNotReady'));
             }
         },
         openUploadDialog() {
@@ -122,10 +198,9 @@ export default {
             const isFolder = 'folder' === cmd,
                 supported = this.webkitdirectorySupported();
             if (!supported) {
-                isFolder && this.$message.warning('当前浏览器不支持');
+                isFolder && this.$message.warning(this.$t('browserNotSupported'));
                 return;
             }
-            // Add folder support
             this.$nextTick(() => {
                 const input = document.getElementsByClassName('el-upload__input')[0];
                 if (input) input.webkitdirectory = isFolder;
@@ -137,7 +212,6 @@ export default {
         beforeUpload(file) {
             this.uploadTip = `${this.$t('uploading')} ${file.name} ${this.$t('to')} ${this.currentPath}, ${this.$t('notCloseWindows')}..`
             this.uploadData.id = file.uid
-            // Is there a folder?
             const dirPath = file.webkitRelativePath;
             this.uploadData.dir = dirPath ? dirPath.substring(0, dirPath.lastIndexOf('/')) : '';
             return true
@@ -154,12 +228,8 @@ export default {
                 ws.onmessage = e1 => {
                     f.percentage = (f.size + Number(e1.data)) / (f.size * 2) * 100
                 }
-                ws.onclose = () => {
-                    console.log(Date(), 'onclose')
-                }
-                ws.onerror = () => {
-                    console.log(Date(), 'onerror')
-                }
+                ws.onclose = () => {}
+                ws.onerror = () => {}
             }
         },
         nameSort(a, b) {
@@ -167,11 +237,9 @@ export default {
         },
         rowClick(row) {
             if (row.IsDir) {
-                // Folder handling
                 this.currentPath = this.currentPath.charAt(this.currentPath.length - 1) === '/' ? this.currentPath + row.Name : this.currentPath + '/' + row.Name
                 this.getFileList()
             } else {
-                // File handling
                 this.downloadFilePath = this.currentPath.charAt(this.currentPath.length - 1) === '/' ? this.currentPath + row.Name : this.currentPath + '/' + row.Name
                 this.downloadFile()
             }
@@ -181,6 +249,7 @@ export default {
             if (this.currentPath === '') {
                 this.currentPath = '/'
             }
+            this.$store.commit('SET_CURRENT_PATH', this.currentPath)
             const result = await fileList(this.currentPath, this.$store.getters.sshReq)
             if (result.Msg === 'success') {
                 if (result.Data.home) {
@@ -191,7 +260,6 @@ export default {
                 } else {
                     this.fileList = result.Data.list
                 }
-                // 只要后端返回的home和当前路径不同且home不为/，就切换 (仅执行一次)
                 if (!this.initialRedirectDone && result.Data.home && result.Data.home !== '/' && this.currentPath !== result.Data.home) {
                     this.initialRedirectDone = true
                     this.currentPath = result.Data.home
@@ -224,6 +292,113 @@ export default {
             const prefix = process.env.NODE_ENV === 'production' ? `${location.origin}` : 'api'
             const downloadUrl = `${prefix}/file/download?path=${this.downloadFilePath}&sshInfo=${this.$store.getters.sshReq}`
             window.open(downloadUrl)
+        },
+        showNewFolderDialog() {
+            this.newFolderName = ''
+            this.newFolderVisible = true
+        },
+        async createNewFolder() {
+            if (!this.newFolderName.trim()) {
+                this.$message.warning(this.$t('enterFolderName'))
+                return
+            }
+            const path = this.currentPath.endsWith('/') ? this.currentPath + this.newFolderName : this.currentPath + '/' + this.newFolderName
+            try {
+                const result = await createFolder(path, this.$store.getters.sshReq)
+                if (result.Msg === 'success') {
+                    this.$message.success(this.$t('folderCreated'))
+                    this.newFolderVisible = false
+                    this.getFileList()
+                } else {
+                    this.$message.error(result.Msg)
+                }
+            } catch (e) {
+                this.$message.error(this.$t('createFolderError'))
+            }
+        },
+        showContextMenu(row, column, event) {
+            event.preventDefault()
+            this.contextMenuRow = row
+            this.contextMenuX = event.clientX
+            this.contextMenuY = event.clientY
+            this.contextMenuVisible = true
+        },
+        hideContextMenu() {
+            this.contextMenuVisible = false
+        },
+        handleContextCommand(cmd) {
+            this.handleFileCommand(cmd, this.contextMenuRow)
+            this.hideContextMenu()
+        },
+        handleFileCommand(cmd, row) {
+            const path = this.currentPath.endsWith('/') ? this.currentPath + row.Name : this.currentPath + '/' + row.Name
+            switch (cmd) {
+                case 'edit':
+                    this.editingFilePath = path
+                    this.editorVisible = true
+                    break
+                case 'download':
+                    this.downloadFilePath = path
+                    this.downloadFile()
+                    break
+                case 'rename':
+                    this.renamingRow = row
+                    this.newName = row.Name
+                    this.renameDialogVisible = true
+                    break
+                case 'delete':
+                    this.confirmDelete(path, row.Name)
+                    break
+            }
+        },
+        confirmDelete(path, name) {
+            this.$confirm(this.$t('deleteConfirm', { name }), this.$t('warning'), {
+                confirmButtonText: this.$t('OK'),
+                cancelButtonText: this.$t('Cancel'),
+                type: 'warning'
+            }).then(async () => {
+                try {
+                    const result = await deleteFile(path, this.$store.getters.sshReq)
+                    if (result.Msg === 'success') {
+                        this.$message.success(this.$t('deleteSuccess'))
+                        this.getFileList()
+                    } else {
+                        this.$message.error(result.Msg)
+                    }
+                } catch (e) {
+                    this.$message.error(this.$t('deleteError'))
+                }
+            }).catch(() => {})
+        },
+        async confirmRename() {
+            if (!this.newName.trim()) {
+                this.$message.warning(this.$t('enterNewName'))
+                return
+            }
+            const oldPath = this.currentPath.endsWith('/') ? this.currentPath + this.renamingRow.Name : this.currentPath + '/' + this.renamingRow.Name
+            const newPath = this.currentPath.endsWith('/') ? this.currentPath + this.newName : this.currentPath + '/' + this.newName
+            try {
+                const result = await renameFile(oldPath, newPath, this.$store.getters.sshReq)
+                if (result.Msg === 'success') {
+                    this.$message.success(this.$t('renameSuccess'))
+                    this.renameDialogVisible = false
+                    this.getFileList()
+                } else {
+                    this.$message.error(result.Msg)
+                }
+            } catch (e) {
+                this.$message.error(this.$t('renameError'))
+            }
+        },
+        handleSearchNavigate(path) {
+            this.currentPath = path
+            this.showSearchPanel = false
+            this.getFileList()
+        },
+        handleSearchOpenFile(path) {
+            this.editingFilePath = path
+            this.editorVisible = true
+            this.showSearchPanel = false
         }
     }
 }
@@ -268,13 +443,21 @@ export default {
         line-height: 1;
     }
 
+    .search-panel {
+        flex-shrink: 0;
+        max-height: 300px;
+        overflow: hidden;
+        border: 1px solid var(--input-border);
+        border-radius: 4px;
+        margin-bottom: 10px;
+    }
+
     .file-table {
         flex-grow: 1;
         width: 100%;
         & .el-table__body-wrapper {
-            height: calc(100% - 40px) !important; /* Adjust based on header height */
+            height: calc(100% - 40px) !important;
         }
-        /* --- Style Customization for Compact Look --- */
         &.el-table th {
             height: 40px;
             padding: 0;
@@ -293,7 +476,6 @@ export default {
             display: flex;
             align-items: center;
         }
-        /* --- End Customization --- */
     }
 }
 .uploadContainer {
@@ -302,6 +484,31 @@ export default {
     }
     .el-upload-dragger {
         width: 95%;
+    }
+}
+.context-menu {
+    position: fixed;
+    z-index: 3000;
+    background: var(--card-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 4px;
+    box-shadow: 0 2px 12px 0 rgba(0,0,0,.1);
+    padding: 5px 0;
+    min-width: 120px;
+}
+.context-menu-item {
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-color);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    &:hover {
+        background: var(--hover-bg, rgba(0, 0, 0, 0.05));
+    }
+    i {
+        font-size: 14px;
     }
 }
 </style>

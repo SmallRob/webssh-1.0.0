@@ -29,6 +29,9 @@ export default {
     SET_TAB(state, tab) {
         state.currentTab = tab
     },
+    SET_CURRENT_PATH(state, path) {
+        state.currentPath = path
+    },
     SET_LANGUAGE: (state, language) => {
         state.language = language
         localStorage.setItem('language', language)
