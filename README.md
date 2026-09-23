@@ -145,6 +145,30 @@ docker-compose up -d
    - 默认监听端口为 8888，可通过 `-p` 参数指定端口。
    - 可通过 `-a user:pass` 启用 Web 登录认证。
 
+### 4. 容器化部署（推荐）
+
+`Dockerfile` 采用多阶段构建：编译阶段使用 `golang:1.24-alpine`（走 `goproxy.cn`），
+运行阶段仅保留静态二进制，镜像约 50MB，无需在宿主机安装 Go / Node。
+
+```bash
+# 一键：构建镜像 -> 重建容器 -> 健康检查
+./deploy.sh
+
+# 或手动
+docker build -t webssh:1.0.0 .
+DOCKER_API_VERSION=1.41 docker-compose up -d
+```
+
+> **注意（务必遵守）**：若服务器安装的是 **docker-compose 1.29（v1）**，请始终带上
+> `DOCKER_API_VERSION=1.41`。v1 在重建容器时会读取镜像的 `ContainerConfig` 字段，
+> 而新版 Docker Engine（API ≥ 1.45）已移除该字段，直接执行 `docker-compose up -d`
+> 会抛出 `KeyError: 'ContainerConfig'`，且此时旧容器已被删除，导致服务中断。
+> 该变量已内置在 `deploy.sh` 中。
+
+快捷服务器列表由 `servers.json` 通过 compose 只读挂载到容器内 `/webssh/servers.json`，
+由后端 `/servers` 接口每次请求实时读取，**修改后无需重启容器**。
+该文件包含明文主机口令，已加入 `.gitignore`，不入库。
+
 ## 鸣谢
 
 [Jrohy](https://github.com/Jrohy)
