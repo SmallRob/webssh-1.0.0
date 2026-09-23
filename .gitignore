@@ -29,8 +29,17 @@ Thumbs.db
 .env.local
 .env.*.local
 
-# 快捷服务器清单：含明文主机口令，仅保留在服务器本地，不入库
+# 快捷服务器清单：只保留在服务器本地，不入库
 servers.json
+
+# 真实投产 compose：含管理员密码等敏感配置，仅服务器本地维护，用模板代替
+docker-compose.yml
+
+# 前端构建产物：由 node 容器构建生成（见 README），Dockerfile 从本地目录 COPY
+public/
+
+# 服务器本地备份
+_backup/
 
 # Logs
 *.log

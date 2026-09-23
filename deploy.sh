@@ -30,6 +30,9 @@ if ! docker-compose up -d; then
   docker run -d --name "${CONTAINER}" --restart unless-stopped \
     -p "${PORT}:${PORT}" \
     -e "authInfo=" -e "PORT=${PORT}" \
+    -e "adminPass=${ADMIN_PASS:-}" \
+    -e "rdpRequireAdmin=${RDP_REQUIRE_ADMIN:-true}" \
+    -e "vncRequireAdmin=${VNC_REQUIRE_ADMIN:-false}" \
     -v "$(pwd)/servers.json:/webssh/servers.json:ro" \
     --network tcb-front-nginx-network \
     "${IMAGE}"
