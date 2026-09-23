@@ -12,6 +12,12 @@ services:
       # 如需启用认证也可用 authInfo 环境变量: user:pass
       - "authInfo="
       - "PORT=8888"
+      # 管理员密码：设置后按下方开关门禁 RDP/VNC 远程桌面，留空则不启用门禁
+      - "adminPass="
+      # RDP 是否需要管理员模式（默认需要）
+      - "rdpRequireAdmin=true"
+      # VNC 是否需要管理员模式（默认不需要）
+      - "vncRequireAdmin=false"
     restart: unless-stopped
     volumes:
       # 快捷服务器配置：修改此文件即时生效（/servers 接口每次请求实时读取），无需重启容器

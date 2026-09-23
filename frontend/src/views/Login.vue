@@ -8,17 +8,25 @@
     <div class="card" style="margin: 20px auto;">
       <div class="title">WebSSH Console</div>
       <el-form :model="sshInfo" label-position="top" class="form-grid">
-        <!-- 连接协议：SSH / RDP / VNC，切换后自动套用默认端口与字段可见性 -->
+        <!-- 连接协议：SSH / RDP / VNC，切换后自动套用默认端口与字段可见性；
+             需要管理员模式且未解锁的协议显示锁标识 -->
         <el-form-item label="连接协议 (Protocol)">
+          <div class="admin-bar" v-if="admin.enabled">
+            <span v-if="admin.isAdmin" class="admin-badge"><i class="fas fa-user-shield"></i> 管理员模式已开启</span>
+            <el-button v-else size="mini" type="warning" plain icon="el-icon-lock" @click="openAdminDialog('')">进入管理员模式</el-button>
+          </div>
           <div class="protocol-picker">
             <div
               v-for="p in protocols"
               :key="p.value"
               class="protocol-item"
               :class="{ 'is-active': sshInfo.protocol === p.value }"
-              @click="selectProtocol(p.value)"
+              @click="onPickProtocol(p.value)"
             >
-              <div class="protocol-name">{{ p.label }}</div>
+              <div class="protocol-name">
+                {{ p.label }}
+                <i v-if="isProtocolLocked(p.value)" class="fas fa-lock protocol-lock"></i>
+              </div>
               <div class="protocol-desc">{{ p.title }}</div>
               <div class="protocol-port">默认端口 {{ p.defaultPort }}</div>
             </div>
@@ -105,6 +113,28 @@
         </el-row>
       </el-form>
     </div>
+    <!-- 管理员模式解锁弹窗：RDP/VNC 受门禁保护时先校验管理员密码 -->
+    <el-dialog
+      title="进入管理员模式"
+      :visible.sync="adminDialogVisible"
+      width="360px"
+      append-to-body
+      custom-class="admin-dialog"
+    >
+      <div class="admin-dialog-tip">{{ adminDialogTip }}</div>
+      <el-input
+        ref="adminPasswordInput"
+        v-model="adminPassword"
+        type="password"
+        placeholder="请输入管理员密码"
+        show-password
+        @keyup.enter.native="unlockAdmin"
+      />
+      <div slot="footer">
+        <el-button size="small" @click="adminDialogVisible = false">取消</el-button>
+        <el-button size="small" type="primary" :loading="adminLoading" @click="unlockAdmin">解锁</el-button>
+      </div>
+    </el-dialog>
     <div class="footer">
       <a href="https://github.com/eooce/webssh" target="_blank" rel="noopener noreferrer">WebSSH Console | Powered by eooce</a>
     </div>
@@ -113,6 +143,9 @@
 
 <script>
 import { PROTOCOLS, protocolSpec, PROTOCOL_ROUTES } from '@/utils/remote'
+import { getAdminStatus, adminLogin } from '@/api/common'
+
+const PROTOCOL_VALUES = PROTOCOLS.map(p => p.value)
 
 export default {
   data () {
@@ -131,7 +164,19 @@ export default {
       },
       privateKeyFileName: '',
       generatedLink: '',
-      isDarkTheme: false
+      isDarkTheme: false,
+      // 管理员门禁状态（由后端 /admin/status 提供）
+      admin: {
+        enabled: false, // 是否配置了管理员密码
+        rdp: false,     // RDP 是否需要管理员
+        vnc: false,     // VNC 是否需要管理员
+        isAdmin: true   // 当前会话是否已解锁
+      },
+      adminDialogVisible: false,
+      adminPassword: '',
+      adminLoading: false,
+      // 解锁后要继续的动作：'' 仅解锁 / 'connect' 继续连接 / 'ssh' 等协议值切换过去
+      pendingAfterUnlock: ''
     }
   },
   computed: {
@@ -148,6 +193,20 @@ export default {
       if (this.sshInfo.protocol === 'vnc') return '请输入 VNC 密码（无密码可留空）'
       if (this.sshInfo.protocol === 'rdp') return '请输入 Windows 登录密码'
       return '请输入密码'
+    },
+    // 当前所选协议是否需要先解锁管理员模式
+    needAdminUnlock () {
+      return this.isProtocolLocked(this.sshInfo.protocol)
+    },
+    adminDialogTip () {
+      if (this.pendingAfterUnlock && this.pendingAfterUnlock !== 'connect') {
+        const spec = protocolSpec(this.pendingAfterUnlock)
+        return `${spec.label} 远程桌面需要管理员权限，请输入管理员密码解锁`
+      }
+      if (this.pendingAfterUnlock === 'connect') {
+        return `${this.currentProtocol.label} 连接需要管理员权限，请输入管理员密码解锁`
+      }
+      return '输入管理员密码以启用远程桌面等管理能力'
     }
   },
   watch: {
@@ -179,7 +238,20 @@ export default {
         this.privateKeyFileName = '已保存的密钥文件'
       }
     }
-    
+
+    // 快捷链接只携带协议与 IP/端口（无凭据）：打开后回填目标，凭据由用户手动输入
+    const query = this.$route.query || {}
+    if (query.hostname) {
+      if (query.protocol && PROTOCOL_VALUES.indexOf(query.protocol) > -1) {
+        this.sshInfo.protocol = query.protocol
+      }
+      this.sshInfo.hostname = query.hostname
+      if (query.port) this.sshInfo.port = Number(query.port) || ''
+      this.$message.info('已载入快捷链接的主机信息，请输入用户名密码连接')
+    }
+
+    this.loadAdminStatus()
+
     // 检查主题设置
     const savedTheme = localStorage.getItem('isDarkTheme')
     if (savedTheme !== null) {
@@ -187,7 +259,7 @@ export default {
     }
     // 恢复主题时同步到 html 根元素，保证 body/#app 背景正确
     document.documentElement.classList.toggle('dark-theme', this.isDarkTheme)
-    
+
     // 添加 Font Awesome CSS
     const link = document.createElement('link')
     link.rel = 'stylesheet'
@@ -195,6 +267,69 @@ export default {
     document.head.appendChild(link)
   },
   methods: {
+    loadAdminStatus () {
+      getAdminStatus().then(res => {
+        const d = (res && res.Data) || {}
+        this.admin = {
+          enabled: !!d.enabled,
+          rdp: !!d.rdp,
+          vnc: !!d.vnc,
+          isAdmin: d.isAdmin !== false
+        }
+      }).catch(() => { /* 查询失败时按未启用处理，后端 WS 门禁兜底 */ })
+    },
+    // 某协议是否处于管理员门禁锁定状态
+    isProtocolLocked (value) {
+      if (!this.admin.enabled || this.admin.isAdmin) return false
+      if (value === 'rdp') return this.admin.rdp
+      if (value === 'vnc') return this.admin.vnc
+      return false
+    },
+    openAdminDialog (pending) {
+      this.pendingAfterUnlock = pending || ''
+      this.adminPassword = ''
+      this.adminDialogVisible = true
+      this.$nextTick(() => {
+        this.$refs.adminPasswordInput && this.$refs.adminPasswordInput.focus()
+      })
+    },
+    unlockAdmin () {
+      if (this.adminLoading) return
+      if (!this.adminPassword) {
+        this.$message.error('请输入管理员密码！')
+        return
+      }
+      this.adminLoading = true
+      adminLogin(this.adminPassword).then(res => {
+        if (res && res.Data && res.Data.success) {
+          this.admin.isAdmin = true
+          this.adminDialogVisible = false
+          this.$message.success('管理员模式已开启')
+          const pending = this.pendingAfterUnlock
+          this.pendingAfterUnlock = ''
+          if (pending === 'connect') {
+            this.doConnect()
+          } else if (pending && pending !== '') {
+            this.selectProtocol(pending)
+          }
+        } else {
+          this.$message.error((res && res.Msg) || '管理员密码错误')
+        }
+      }).catch(() => {
+        this.$message.error('验证请求失败，请稍后重试')
+      }).finally(() => {
+        this.adminLoading = false
+      })
+    },
+    // 点击协议卡片：受门禁保护的协议先解锁再切换
+    onPickProtocol (value) {
+      if (this.sshInfo.protocol === value) return
+      if (this.isProtocolLocked(value)) {
+        this.openAdminDialog(value)
+        return
+      }
+      this.selectProtocol(value)
+    },
     // 切换协议：仅在端口为空或仍是上一协议默认端口时才替换，
     // 避免覆盖用户手填的自定义端口；同时清理该协议不适用的字段。
     selectProtocol (value) {
@@ -271,9 +406,17 @@ export default {
       }
     },
     onConnect () {
+      // 管理员门禁：受保护的远程桌面协议需先解锁
+      if (this.needAdminUnlock) {
+        this.openAdminDialog('connect')
+        return
+      }
+      this.doConnect()
+    },
+    doConnect () {
       // 清除之前的认证信息
       sessionStorage.removeItem('sshInfo')
-      
+
       if (!this.validate()) return
       // 根据实际使用的登录方式清理未使用的认证信息（仅 SSH 支持密钥登录）
       if (this.sshInfo.privateKey && this.sshInfo.privateKey.trim()) {
@@ -289,26 +432,14 @@ export default {
       localStorage.setItem('connectionInfo', JSON.stringify(this.buildConnectionInfo()))
 
       const spec = this.currentProtocol
-      // 构建查询参数
+      // 安全：URL 只携带目标与协议，凭据放 sessionStorage（连接页自动回退读取），
+      // 避免用户名密码出现在链接、浏览器历史与服务端访问日志中
+      sessionStorage.setItem('sshInfo', JSON.stringify(this.sshInfo))
       const query = {
         protocol: spec.value,
         hostname: encodeURIComponent(this.sshInfo.hostname),
         port: Number(this.sshInfo.port) || spec.defaultPort,
-        username: encodeURIComponent(this.sshInfo.username || ''),
-        command: encodeURIComponent(this.sshInfo.command || '')
-      }
-      if (this.sshInfo.domain) {
-        query.domain = encodeURIComponent(this.sshInfo.domain)
-      }
-
-      // 根据登录方式设置认证信息
-      if (this.sshInfo.privateKey && this.sshInfo.privateKey.trim()) {
-        // 使用密钥登录
-        sessionStorage.setItem('sshInfo', JSON.stringify(this.sshInfo))
-        query.useKey = 1
-      } else if (this.sshInfo.password) {
-        // 使用密码登录
-        query.password = btoa(this.sshInfo.password)
+        useKey: 1
       }
 
       // 按协议在对应控制台中打开：ssh→终端，rdp/vnc→远程桌面
@@ -342,31 +473,19 @@ export default {
       }
     },
     onGenerateLink () {
-      if (this.sshInfo.privateKey) {
-        this.$message.warning('密钥方式登录不支持生成快捷链接，请改用密码登录方式')
-        return
-      }
       if (!this.validate()) return
       const spec = this.currentProtocol
+      // 安全：快捷链接只保留协议与 IP/端口，不携带用户名密码；
+      // 打开链接的人需要手动输入凭据才能连接
       const url = new URL(window.location.href)
       url.pathname = PROTOCOL_ROUTES[spec.value]
-      const cleanSshInfo = {}
-      const infoToProcess = {
+      url.search = new URLSearchParams({
         protocol: spec.value,
         hostname: this.sshInfo.hostname,
-        port: this.sshInfo.port || spec.defaultPort,
-        username: this.sshInfo.username,
-        password: this.sshInfo.password,
-        domain: this.sshInfo.domain,
-        command: this.sshInfo.command
-      }
-      for (const key in infoToProcess) {
-        const value = infoToProcess[key]
-        if (value === '' || value === null || value === undefined) continue
-        cleanSshInfo[key] = key === 'password' ? btoa(value) : value
-      }
-      url.search = new URLSearchParams(cleanSshInfo).toString()
+        port: Number(this.sshInfo.port) || spec.defaultPort
+      }).toString()
       this.generatedLink = url.href
+      this.$message.success('链接已生成（仅含地址端口，不含凭据）')
     },
     copyLink () {
       if (this.generatedLink) {
@@ -574,6 +693,35 @@ export default {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   width: 100%;
+}
+
+/* ---- 管理员模式 ---- */
+.admin-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.admin-badge {
+  font-size: 12px;
+  color: #1adb6d;
+  background: rgba(26, 219, 109, 0.12);
+  border: 1px solid rgba(26, 219, 109, 0.35);
+  border-radius: 10px;
+  padding: 2px 10px;
+}
+
+.protocol-lock {
+  font-size: 11px;
+  margin-left: 4px;
+  opacity: 0.75;
+}
+
+.admin-dialog-tip {
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 12px;
+  line-height: 1.6;
 }
 
 .protocol-item {

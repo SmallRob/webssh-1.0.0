@@ -3,15 +3,12 @@
 // 三种协议的页面（TerminalPage / RdpPage / VncPage）共用同一段
 // 「解析 query → 回退 sessionStorage → commit SET_SSH」逻辑，
 // 差异仅为默认协议，因此抽成工厂函数。
+//
+// 安全约定：快捷链接 / 连接跳转的 URL 只允许携带目标（协议、地址、端口），
+// password / privateKey / passphrase 一律不接受 URL 传参，
+// 凭据统一通过 sessionStorage（连接页跳转时写入）回退获取，
+// 避免用户名密码进入链接、浏览器历史与服务端访问日志。
 import { protocolSpec } from '@/utils/remote'
-
-function safeAtob (value) {
-    try {
-        return window.atob(value)
-    } catch (e) {
-        return decodeURIComponent(value)
-    }
-}
 
 export default function connFromQuery (protocol) {
     return {
@@ -21,25 +18,21 @@ export default function connFromQuery (protocol) {
 
             let hostname = query.hostname
             let username = query.username
-            let password = query.password
             let domain = query.domain
-            let privateKey = query.privateKey
-            let passphrase = query.passphrase
             let command = query.command
 
             if (hostname) hostname = decodeURIComponent(hostname)
             if (username) username = decodeURIComponent(username)
             if (domain) domain = decodeURIComponent(domain)
             if (command) command = decodeURIComponent(command)
-            if (privateKey) privateKey = decodeURIComponent(privateKey)
-            if (passphrase) passphrase = decodeURIComponent(passphrase)
-            if (password) password = safeAtob(password)
 
-            const useKey = query.useKey
+            let password = ''
+            let privateKey = ''
+            let passphrase = ''
 
-            // 密钥登录 / query 不完整时，回退到 sessionStorage 中的完整信息
-            const needFallback = useKey ||
-                !hostname || !username && spec.needUsername || (!password && !privateKey && spec.needPassword)
+            // query 不完整时，回退到 sessionStorage 中的完整信息
+            const needFallback = !hostname || !username && spec.needUsername ||
+                (!password && !privateKey && spec.needPassword)
             if (needFallback) {
                 const saved = sessionStorage.getItem('sshInfo')
                 if (saved) {
@@ -47,11 +40,11 @@ export default function connFromQuery (protocol) {
                         const info = JSON.parse(saved)
                         hostname = info.hostname || hostname
                         username = info.username || username
-                        password = info.password || password
+                        password = info.password || ''
                         domain = info.domain || domain
                         command = info.command || command
-                        privateKey = info.privateKey || privateKey
-                        passphrase = info.passphrase || passphrase
+                        privateKey = info.privateKey || ''
+                        passphrase = info.passphrase || ''
                     } catch (e) { /* 忽略损坏的缓存 */ }
                 }
             }

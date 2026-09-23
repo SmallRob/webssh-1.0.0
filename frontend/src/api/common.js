@@ -2,3 +2,14 @@ import request from '@/utils/request'
 export function checkSSH(sshInfo) {
     return request.get(`/check?sshInfo=${sshInfo}`)
 }
+
+// 管理员模式：状态查询 / 解锁 / 退出
+export function getAdminStatus() {
+    return request.get('/admin/status')
+}
+export function adminLogin(password) {
+    return request.post('/admin/login', { password })
+}
+export function adminLogout() {
+    return request.post('/admin/logout')
+}

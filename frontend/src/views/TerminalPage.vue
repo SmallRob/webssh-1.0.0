@@ -8,47 +8,28 @@ import Terminal from '@/components/Terminal.vue'
 export default {
   components: { Terminal },
   beforeCreate() {
-    let { hostname, port, username, password, command, privateKey, passphrase, useKey } = this.$route.query;
-    // 解码
+    // URL 只允许携带目标信息；凭据统一从 sessionStorage 回退读取，
+    // 避免用户名密码出现在链接、浏览器历史与服务端访问日志中
+    let { hostname, port, username, command } = this.$route.query;
     if (hostname) hostname = decodeURIComponent(hostname);
     if (username) username = decodeURIComponent(username);
-    if (password) {
-      try {
-        password = atob(password);
-      } catch (e) {
-        password = decodeURIComponent(password);
-      }
-    }
     if (command) command = decodeURIComponent(command);
-    if (privateKey) privateKey = decodeURIComponent(privateKey);
-    if (passphrase) passphrase = decodeURIComponent(passphrase);
 
-    // 如果是密钥登录，从 sessionStorage 读取完整 sshInfo
-    if (useKey) {
-      const savedInfo = sessionStorage.getItem('sshInfo');
-      if (savedInfo) {
+    let password = '';
+    let privateKey = '';
+    let passphrase = '';
+    const savedInfo = sessionStorage.getItem('sshInfo');
+    if (savedInfo) {
+      try {
         const info = JSON.parse(savedInfo);
-        hostname = info.hostname;
-        port = info.port;
-        username = info.username;
-        password = info.password;
-        command = info.command;
-        privateKey = info.privateKey;
-        passphrase = info.passphrase;
-      }
-    } else if (!hostname || !username || (!password && !privateKey)) {
-      // fallback 到 sessionStorage
-      const savedInfo = sessionStorage.getItem('sshInfo');
-      if (savedInfo) {
-        const info = JSON.parse(savedInfo);
-        hostname = info.hostname;
-        port = info.port;
-        username = info.username;
-        password = info.password;
-        command = info.command;
-        privateKey = info.privateKey;
-        passphrase = info.passphrase;
-      }
+        hostname = info.hostname || hostname;
+        port = info.port || port;
+        username = info.username || username;
+        password = info.password || '';
+        command = info.command || command;
+        privateKey = info.privateKey || '';
+        passphrase = info.passphrase || '';
+      } catch (e) { /* 忽略损坏的缓存 */ }
     }
 
     if (hostname && username && (password || privateKey)) {

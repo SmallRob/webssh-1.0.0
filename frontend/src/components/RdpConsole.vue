@@ -28,11 +28,31 @@
 
     <div ref="container" class="rdp-stage" tabindex="0">
       <canvas ref="screen" class="rdp-canvas" :class="{ 'is-fit': fitMode }"></canvas>
-      <div v-if="!connected" class="rdp-overlay">
+      <div v-if="status === 'needAdmin'" class="rdp-overlay">
+        <div class="rdp-overlay-box">
+          <div class="rdp-overlay-title"><i class="fas fa-user-shield"></i> 需要管理员模式</div>
+          <div class="rdp-overlay-msg">RDP 远程桌面连接需要管理员权限，请输入管理员密码解锁</div>
+          <el-input
+            v-model="adminPassword"
+            type="password"
+            placeholder="管理员密码"
+            show-password
+            class="admin-gate-input"
+            @keyup.enter.native="unlockAdmin"
+          />
+          <div class="admin-gate-actions">
+            <button class="rdp-btn primary" :disabled="adminLoading" @click="unlockAdmin">
+              {{ adminLoading ? '验证中…' : '解锁并连接' }}
+            </button>
+            <button class="rdp-btn" @click="goLogin">返回登录页</button>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="!connected" class="rdp-overlay">
         <div class="rdp-overlay-box">
           <div class="rdp-overlay-title">{{ overlayTitle }}</div>
           <div class="rdp-overlay-msg">{{ statusText }}</div>
-          <button class="rdp-btn primary" :disabled="loading" @click="connect">
+          <button class="rdp-btn primary" :disabled="loading" @click="gateAndConnect">
             {{ loading ? '连接中…' : '重新连接' }}
           </button>
         </div>
@@ -43,6 +63,7 @@
 
 <script>
 import { encodeConnInfo, wsUrl, targetAddr, loadEsm } from '@/utils/remote'
+import { getAdminStatus, adminLogin } from '@/api/common'
 
 // ironrdp-wasm 的部署位置。
 // 生产环境在 /static 下（由 vue.config.js 的 copy 规则产出），
@@ -102,11 +123,13 @@ export default {
       rdp: null, // 已初始化的 ironrdp-wasm 模块
       session: null,
       canvas: null,
-      status: 'idle', // idle | connecting | connected | closed | failed
+      status: 'idle', // idle | connecting | connected | closed | failed | needAdmin
       message: '',
       loading: false,
       fitMode: true,
-      unloaders: []
+      unloaders: [],
+      adminPassword: '',
+      adminLoading: false
     }
   },
   computed: {
@@ -154,10 +177,11 @@ export default {
     this.canvas = this.$refs.screen
     if (!this.connInfo.hostname) {
       this.$message.error('无效的连接信息！正在返回登录页...')
-      this.$router.push('/')
+      // 带上原始 query 返回登录页，便于回填快捷链接中的主机信息
+      this.goLogin()
       return
     }
-    this.connect()
+    this.gateAndConnect()
   },
   beforeDestroy () {
     this.cleanup()
@@ -166,6 +190,47 @@ export default {
     setStatus (status, message) {
       this.status = status
       this.message = message || ''
+    },
+    goLogin () {
+      this.$router.push({ path: '/', query: this.$route.query })
+    },
+    // ---- 管理员门禁 ----
+    // 先查 /admin/status：协议受门禁保护且未解锁时展示解锁界面；
+    // 查询失败时仍尝试连接，由后端 WS 升级前的门禁兜底。
+    async gateAndConnect () {
+      try {
+        const res = await getAdminStatus()
+        const d = (res && res.Data) || {}
+        const required = this.connInfo.protocol === 'vnc' ? !!d.vnc : !!d.rdp
+        if (d.enabled && required && !d.isAdmin) {
+          this.adminPassword = ''
+          this.setStatus('needAdmin')
+          return
+        }
+      } catch (e) { /* 后端不可达时交给后端门禁裁决 */ }
+      this.connect()
+    },
+    async unlockAdmin () {
+      if (this.adminLoading) return
+      if (!this.adminPassword) {
+        this.$message.error('请输入管理员密码！')
+        return
+      }
+      this.adminLoading = true
+      try {
+        const res = await adminLogin(this.adminPassword)
+        if (res && res.Data && res.Data.success) {
+          this.$message.success('管理员模式已开启')
+          this.setStatus('idle')
+          this.connect()
+        } else {
+          this.$message.error((res && res.Msg) || '管理员密码错误')
+        }
+      } catch (e) {
+        this.$message.error('验证请求失败，请稍后重试')
+      } finally {
+        this.adminLoading = false
+      }
     },
     // ---- 连接主体 ----
     async connect () {
@@ -572,6 +637,22 @@ export default {
   margin-bottom: 18px;
   word-break: break-all;
   line-height: 1.6;
+}
+
+/* 管理员解锁面板 */
+.admin-gate-input {
+  max-width: 260px;
+}
+.admin-gate-input ::v-deep .el-input__inner {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #e6edf3;
+}
+.admin-gate-actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
 }
 
 @media (max-width: 768px) {

@@ -61,7 +61,8 @@ export default {
             const sshInfo = this.$store.state.sshInfo;
             if (!sshInfo || !sshInfo.hostname) {
                 this.$message.error('无效的连接信息！正在返回登录页...')
-                this.$router.push('/')
+                // 带上原始 query 返回登录页，便于回填快捷链接中的主机信息
+                this.$router.push({ path: '/', query: this.$route.query })
                 return
             }
             const termWeb = document.getElementById('xterm-container')

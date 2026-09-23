@@ -156,13 +156,15 @@ docker-compose up -d
 
 # 或手动
 docker build -t webssh:1.0.0 .
-DOCKER_API_VERSION=1.41 docker-compose up -d
+DOCKER_API_VERSION=1.44 docker-compose up -d
 ```
 
 > **注意（务必遵守）**：若服务器安装的是 **docker-compose 1.29（v1）**，请始终带上
-> `DOCKER_API_VERSION=1.41`。v1 在重建容器时会读取镜像的 `ContainerConfig` 字段，
-> 而新版 Docker Engine（API ≥ 1.45）已移除该字段，直接执行 `docker-compose up -d`
+> `DOCKER_API_VERSION=1.44`。v1 在重建容器时会读取镜像的 `ContainerConfig` 字段，
+> 而 Docker Engine API ≥ 1.45 已移除该字段，直接执行 `docker-compose up -d`
 > 会抛出 `KeyError: 'ContainerConfig'`，且此时旧容器已被删除，导致服务中断。
+> 引擎最低兼容 API 为 1.44（该版本仍返回 `ContainerConfig`），因此固定 1.44 即可。
+> 注意不要固定到 1.41 等更低版本——低于引擎最低 API 会让 `docker build` 直接被拒绝。
 > 该变量已内置在 `deploy.sh` 中。
 
 快捷服务器列表由 `servers.json` 通过 compose 只读挂载到容器内 `/webssh/servers.json`，

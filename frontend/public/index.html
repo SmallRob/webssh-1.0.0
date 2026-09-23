@@ -57,29 +57,34 @@ html.dark-theme #quick-servers .qs-btn:hover{border-color:#409eff;color:#66b1ff;
     for(var i=0;i<items.length;i++){
       var name=items[i].querySelector('.protocol-name');
       if(name&&name.textContent.trim().toUpperCase()==='SSH'){
-        if(!items[i].classList.contains('is-active')){items[i].click();}
-        return;
+        if(!items[i].classList.contains('is-active')){items[i].click();return true;}
+        return false;
       }
     }
+    return false;
   }
   function fillForm(s){
     var card=document.querySelector('.card');if(!card)return false;
+    /* 刚从其它协议切回 SSH 时 Vue 会重渲染表单，先返回 false 走重试机制 */
+    if(ensureSsh())return false;
     var inputs=card.querySelectorAll('input.el-input__inner');
     var host=null,port=null,user=null,pass=null;
     inputs.forEach(function(i){var ph=i.getAttribute('placeholder')||'';
       if(ph.indexOf('主机地址')>-1)host=i;else if(ph.indexOf('端口')>-1)port=i;
       else if(ph.indexOf('用户名')>-1)user=i;else if(ph.indexOf('密码')>-1&&i.type==='password')pass=i;});
     if(!host||!user)return false;
-    ensureSsh();
+    /* 安全：快捷连接只回填 IP 与端口，用户名密码必须由用户手动输入；
+       顺带清空旧凭据，避免把上一台主机的账号密码误带到新主机 */
     setNative(host,s.host||'');if(port)setNative(port,s.port||22);
-    setNative(user,s.username||'');if(pass&&s.password)setNative(pass,s.password);
+    setNative(user,'');if(pass)setNative(pass,'');
+    user.focus();
     return true;
   }
   function render(list){
     if(!list||!list.length)return;
     var box=document.createElement('div');box.id='quick-servers';
     var html='<div class="qs-title">快捷连接 (Quick Connect)</div><div class="qs-list">';
-    list.forEach(function(s){html+='<button type="button" class="qs-btn" data-i="'+encodeURIComponent(JSON.stringify(s))+'"><b>'+s.name+'</b><span>'+s.username+'@'+s.host+':'+(s.port||22)+'</span></button>'});
+    list.forEach(function(s){html+='<button type="button" class="qs-btn" data-i="'+encodeURIComponent(JSON.stringify(s))+'"><b>'+s.name+'</b><span>'+s.host+':'+(s.port||22)+'</span></button>'});
     html+='</div>';box.innerHTML=html;
     box.addEventListener('click',function(e){
       var btn=e.target.closest('.qs-btn');if(!btn)return;

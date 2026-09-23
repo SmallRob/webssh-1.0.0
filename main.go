@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -24,8 +25,11 @@ var (
 	port       = flag.Int("p", 8888, "服务运行端口")
 	v          = flag.Bool("v", false, "显示版本号")
 	authInfo   = flag.String("a", "", "开启账号密码登录验证, '-a user:pass'的格式传参")
+	adminPass  = flag.String("adminPass", "", "管理员密码；设置后按开关门禁RDP/VNC远程桌面，留空则不启用")
 	timeout    int
 	savePass   bool
+	rdpAdmin   bool
+	vncAdmin   bool
 	version    string
 	buildDate  string
 	goVersion  string
@@ -37,6 +41,8 @@ var (
 func init() {
 	flag.IntVar(&timeout, "t", 120, "ssh连接超时时间(min)")
 	flag.BoolVar(&savePass, "s", true, "保存ssh密码")
+	flag.BoolVar(&rdpAdmin, "rdpRequireAdmin", true, "RDP远程桌面是否需要管理员模式(默认需要)")
+	flag.BoolVar(&vncAdmin, "vncRequireAdmin", false, "VNC远程桌面是否需要管理员模式(默认不需要)")
 	if envVal, ok := os.LookupEnv("savePass"); ok {
 		if b, err := strconv.ParseBool(envVal); err == nil {
 			savePass = b
@@ -48,6 +54,19 @@ func init() {
 	if envVal, ok := os.LookupEnv("port"); ok {
 		if b, err := strconv.Atoi(envVal); err == nil {
 			*port = b
+		}
+	}
+	if envVal, ok := os.LookupEnv("adminPass"); ok {
+		*adminPass = envVal
+	}
+	if envVal, ok := os.LookupEnv("rdpRequireAdmin"); ok {
+		if b, err := strconv.ParseBool(envVal); err == nil {
+			rdpAdmin = b
+		}
+	}
+	if envVal, ok := os.LookupEnv("vncRequireAdmin"); ok {
+		if b, err := strconv.ParseBool(envVal); err == nil {
+			vncAdmin = b
 		}
 	}
 	flag.Parse()
@@ -69,6 +88,9 @@ func init() {
 }
 
 func main() {
+	// 管理员门禁：adminPass 为空时整体关闭；否则按开关门禁 RDP / VNC
+	controller.InitAdmin(*adminPass, rdpAdmin, vncAdmin)
+
     server := gin.New()
     server.Use(gin.Recovery())
     server.SetTrustedProxies(nil)
@@ -82,11 +104,28 @@ func main() {
 	})
 	// RDP / VNC 远程桌面通道：与 /term 采用相同的 sshInfo 描述符，
 	// 由 core 层的 RDCleanPath 代理 / RFB 中继接管。
+	// 升级 WebSocket 前先过管理员门禁（未解锁时返回 401）。
 	server.GET("/rdp", func(c *gin.Context) {
+		if !controller.CheckAdminGate(c, core.ProtocolRDP) {
+			return
+		}
 		controller.RemoteWs(c, core.ProtocolRDP)
 	})
 	server.GET("/vnc", func(c *gin.Context) {
+		if !controller.CheckAdminGate(c, core.ProtocolVNC) {
+			return
+		}
 		controller.RemoteWs(c, core.ProtocolVNC)
+	})
+	// 管理员模式：查询门禁状态 / 解锁 / 退出
+	server.GET("/admin/status", func(c *gin.Context) {
+		c.JSON(200, controller.AdminStatus(c))
+	})
+	server.POST("/admin/login", func(c *gin.Context) {
+		c.JSON(200, controller.AdminLogin(c))
+	})
+	server.POST("/admin/logout", func(c *gin.Context) {
+		c.JSON(200, controller.AdminLogout(c))
 	})
 	// 内置协议清单（ssh / rdp / vnc），供前端协议选择器使用
 	server.GET("/protocols", func(c *gin.Context) {
@@ -99,7 +138,9 @@ func main() {
 		}
 		c.JSON(200, responseBody)
 	})
-	// 快捷服务器列表：每次请求实时读取配置文件，修改后无需重启容器
+	// 快捷服务器列表：每次请求实时读取配置文件，修改后无需重启容器。
+	// 安全：只向浏览器下发 name/host/port，凭据即使配置了也绝不下发，
+	// 用户必须手动输入用户名密码。
 	server.GET("/servers", func(c *gin.Context) {
 		path := os.Getenv("SERVERS_FILE")
 		if path == "" {
@@ -110,7 +151,24 @@ func main() {
 			c.JSON(200, []interface{}{})
 			return
 		}
-		c.Data(200, "application/json; charset=utf-8", data)
+		var raw []map[string]interface{}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			c.JSON(200, []interface{}{})
+			return
+		}
+		safe := make([]map[string]interface{}, 0, len(raw))
+		for _, item := range raw {
+			port := item["port"]
+			if port == nil {
+				port = 22
+			}
+			safe = append(safe, map[string]interface{}{
+				"name": item["name"],
+				"host": item["host"],
+				"port": port,
+			})
+		}
+		c.JSON(200, safe)
 	})
 	file := server.Group("/file")
 	{
