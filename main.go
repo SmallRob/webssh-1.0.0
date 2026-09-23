@@ -104,14 +104,29 @@ func main() {
 	})
 	// RDP / VNC 远程桌面通道：与 /term 采用相同的 sshInfo 描述符，
 	// 由 core 层的 RDCleanPath 代理 / RFB 中继接管。
-	// 升级 WebSocket 前先过管理员门禁（未解锁时返回 401）。
+	//
+	// 注意 /rdp /vnc 同时是前端 SPA 路由（RDP/VNC 控制台页面）：
+	//   - 浏览器页面导航（非 WS 升级请求）必须返回 index.html，
+	//     否则会落入 WS 处理器返回空响应，表现为「黑屏」；
+	//   - 仅真正的 WebSocket 升级请求才进入隧道，并先过管理员门禁。
+	isWsUpgrade := func(c *gin.Context) bool {
+		return strings.EqualFold(c.Request.Header.Get("Upgrade"), "websocket")
+	}
 	server.GET("/rdp", func(c *gin.Context) {
+		if !isWsUpgrade(c) {
+			serveIndex(c)
+			return
+		}
 		if !controller.CheckAdminGate(c, core.ProtocolRDP) {
 			return
 		}
 		controller.RemoteWs(c, core.ProtocolRDP)
 	})
 	server.GET("/vnc", func(c *gin.Context) {
+		if !isWsUpgrade(c) {
+			serveIndex(c)
+			return
+		}
 		if !controller.CheckAdminGate(c, core.ProtocolVNC) {
 			return
 		}
@@ -215,25 +230,36 @@ func main() {
 	// For any other route, serve the index.html file.
 	// This makes it compatible with Vue Router's history mode.
 	server.NoRoute(func(c *gin.Context) {
-		if *authInfo != "" {
-			// If auth is enabled, check credentials.
-			// This is a simplified check. For production, use a proper session/token mechanism.
-			user, pass, hasAuth := c.Request.BasicAuth()
-			if !hasAuth || user != username || pass != password {
-				c.Header("WWW-Authenticate", `Basic realm="Restricted"`)
-				c.AbortWithStatus(http.StatusUnauthorized)
-				return
-			}
-		}
-		
-		indexHTML, err := f.ReadFile("public/index.html")
-		if err != nil {
-			c.String(http.StatusInternalServerError, "index.html not found")
+		if !checkBasicAuth(c) {
 			return
 		}
-		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
+		serveIndex(c)
 	})
 
 	fmt.Printf("Github：https://github.com/eooce/webssh\n")
 	server.Run(fmt.Sprintf(":%d", *port))
+}
+
+// checkBasicAuth 校验 Web 登录认证（-a user:pass 启用），失败时已写入 401。
+func checkBasicAuth(c *gin.Context) bool {
+	if *authInfo == "" {
+		return true
+	}
+	user, pass, hasAuth := c.Request.BasicAuth()
+	if hasAuth && user == username && pass == password {
+		return true
+	}
+	c.Header("WWW-Authenticate", `Basic realm="Restricted"`)
+	c.AbortWithStatus(http.StatusUnauthorized)
+	return false
+}
+
+// serveIndex 返回 SPA 入口页（供 NoRoute 与 /rdp /vnc 页面导航复用）。
+func serveIndex(c *gin.Context) {
+	indexHTML, err := f.ReadFile("public/index.html")
+	if err != nil {
+		c.String(http.StatusInternalServerError, "index.html not found")
+		return
+	}
+	c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 }

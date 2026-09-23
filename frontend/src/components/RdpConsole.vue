@@ -27,7 +27,9 @@
     </div>
 
     <div ref="container" class="rdp-stage" tabindex="0">
-      <canvas ref="screen" class="rdp-canvas" :class="{ 'is-fit': fitMode }"></canvas>
+      <!-- tabindex 让 canvas 可聚焦：键盘事件只发给持有焦点的元素，
+           否则画布收不到 keydown/keyup，表现为「连上但无法键盘输入」 -->
+      <canvas ref="screen" class="rdp-canvas" :class="{ 'is-fit': fitMode }" tabindex="0"></canvas>
       <div v-if="status === 'needAdmin'" class="rdp-overlay">
         <div class="rdp-overlay-box">
           <div class="rdp-overlay-title"><i class="fas fa-user-shield"></i> 需要管理员模式</div>
