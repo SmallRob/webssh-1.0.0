@@ -29,6 +29,9 @@ Thumbs.db
 .env.local
 .env.*.local
 
+# 快捷服务器清单：含明文主机口令，仅保留在服务器本地，不入库
+servers.json
+
 # Logs
 *.log
 logs/

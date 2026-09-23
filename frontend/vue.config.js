@@ -106,13 +106,26 @@ module.exports = {
   chainWebpack: (config) => {
     config.plugins.delete('prefetch');
 
-    // 拷贝 public/img 到 ../public/static/img
+    // 拷贝 public 下的静态资源到 ../public（Go 通过 go:embed public/* 内嵌）
+    // - img：原有背景图
+    // - novnc：noVNC 1.7.0（原生 ESM，浏览器直接 import，不经 webpack）
+    // - rdp：ironrdp-wasm（WASM 版 RDP 协议栈 + .wasm 二进制）
+    //   RDP/VNC 客户端刻意走「原生 ESM 静态资源」而非打包，原因是二者
+    //   依赖 import.meta.url 解析 .wasm 位置，且体积/生命周期与业务代码无关。
     config.plugin('copy').tap(() => {
       return [
         [
           {
             from: path.resolve(__dirname, 'public/img'),
             to: path.resolve(__dirname, '../public/static/img')
+          },
+          {
+            from: path.resolve(__dirname, 'public/novnc'),
+            to: path.resolve(__dirname, '../public/static/novnc')
+          },
+          {
+            from: path.resolve(__dirname, 'public/rdp'),
+            to: path.resolve(__dirname, '../public/static/rdp')
           }
         ]
       ];

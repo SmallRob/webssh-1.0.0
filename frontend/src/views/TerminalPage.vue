@@ -53,6 +53,8 @@ export default {
 
     if (hostname && username && (password || privateKey)) {
       this.$store.commit('SET_SSH', {
+        // 终端页始终为 SSH，避免同标签页切换协议后污染 store
+        protocol: 'ssh',
         hostname,
         port: Number(port) || 22,
         username,

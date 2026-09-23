@@ -92,5 +92,25 @@ export default {
     // Terminal
     webSSHConsole: 'WebSSH Console',
     github: 'GitHub',
-    toggleSFTP: 'Toggle SFTP'
+    toggleSFTP: 'Toggle SFTP',
+
+    // 协议 / 远程桌面
+    protocol: '连接协议',
+    sshTerminal: 'SSH 终端',
+    rdpConsole: 'RDP 远程桌面',
+    vncConsole: 'VNC 远程桌面',
+    remoteDesktop: '远程桌面',
+    disconnect: '断开',
+    reconnect: '重新连接',
+    fitWindow: '适应窗口',
+    originalRatio: '原始比例',
+    fullscreen: '全屏',
+    onlyView: '仅查看',
+    controllable: '可控制',
+    syncResolution: '同步分辨率',
+    connected: '已连接',
+    connecting: '正在连接',
+    notConnected: '尚未连接',
+    sessionClosed: '会话已结束',
+    connectionFailed: '连接失败'
 }

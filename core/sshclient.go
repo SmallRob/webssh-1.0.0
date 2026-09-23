@@ -24,9 +24,8 @@ func DecodedMsgToSSHClient(sshInfo string) (SSHClient, error) {
 	if err != nil {
 		return client, err
 	}
-	if strings.Contains(client.Hostname, ":") && string(client.Hostname[0]) != "[" {
-		client.Hostname = "[" + client.Hostname + "]"
-	}
+	// 统一补齐协议名、默认端口与 IPv6 方括号
+	client.Normalize()
 	return client, nil
 }
 

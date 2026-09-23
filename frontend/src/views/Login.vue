@@ -8,6 +8,22 @@
     <div class="card" style="margin: 20px auto;">
       <div class="title">WebSSH Console</div>
       <el-form :model="sshInfo" label-position="top" class="form-grid">
+        <!-- 连接协议：SSH / RDP / VNC，切换后自动套用默认端口与字段可见性 -->
+        <el-form-item label="连接协议 (Protocol)">
+          <div class="protocol-picker">
+            <div
+              v-for="p in protocols"
+              :key="p.value"
+              class="protocol-item"
+              :class="{ 'is-active': sshInfo.protocol === p.value }"
+              @click="selectProtocol(p.value)"
+            >
+              <div class="protocol-name">{{ p.label }}</div>
+              <div class="protocol-desc">{{ p.title }}</div>
+              <div class="protocol-port">默认端口 {{ p.defaultPort }}</div>
+            </div>
+          </div>
+        </el-form-item>
                  <el-row :gutter="20">
            <el-col :span="12">
              <el-form-item label="主机地址 (Hostname)">
@@ -16,23 +32,30 @@
            </el-col>
            <el-col :span="12">
              <el-form-item label="端口 (Port)">
-               <el-input v-model.number="sshInfo.port" placeholder="请输入端口(默认22)" />
+               <el-input v-model.number="sshInfo.port" :placeholder="`请输入端口(默认${currentProtocol.defaultPort})`" />
              </el-form-item>
            </el-col>
          </el-row>
                  <el-row :gutter="20">
-           <el-col :span="12">
+           <el-col v-if="currentProtocol.needUsername" :span="12">
              <el-form-item label="用户名 (Username)">
                <el-input ref="usernameInput" v-model="sshInfo.username" placeholder="请输入用户名" />
              </el-form-item>
            </el-col>
-           <el-col :span="12">
-             <el-form-item label="密码 (Password)">
-               <el-input ref="passwordInput" v-model="sshInfo.password" type="password" placeholder="请输入密码" show-password/>
+           <el-col :span="currentProtocol.needUsername ? 12 : 24">
+             <el-form-item :label="passwordLabel">
+               <el-input ref="passwordInput" v-model="sshInfo.password" type="password" :placeholder="passwordPlaceholder" show-password/>
              </el-form-item>
            </el-col>
          </el-row>
-                 <el-row :gutter="20">
+         <el-row v-if="currentProtocol.needDomain" :gutter="20">
+           <el-col :span="24">
+             <el-form-item label="域 (Domain)">
+               <el-input v-model="sshInfo.domain" placeholder="Windows 域 / 工作组，可留空（默认本机）" />
+             </el-form-item>
+           </el-col>
+         </el-row>
+                 <el-row v-if="currentProtocol.needPrivateKey" :gutter="20">
            <el-col :xs="24" :sm="12">
              <el-form-item label="私钥 (Private Key)">
                <el-upload
@@ -59,7 +82,7 @@
              </el-form-item>
            </el-col>
          </el-row>
-        <el-row>
+        <el-row v-if="currentProtocol.needCommand">
           <el-col :span="24">
             <el-form-item label="初始命令 (Initial command)">
               <el-input v-model="sshInfo.command" placeholder="登录后要执行的命令" />
@@ -69,7 +92,7 @@
         <el-row type="flex" justify="center" style="margin-top: 10px;">
           <el-button type="danger" icon="el-icon-refresh" @click="onReset">重置输入</el-button>
           <el-button type="primary" icon="el-icon-link" @click="onGenerateLink">生成链接</el-button>
-          <el-button type="success" @click="onConnect"><i class="fas fa-terminal" style="margin-right: 6px;"></i>连接SSH</el-button>
+          <el-button type="success" @click="onConnect"><i class="fas fa-terminal" style="margin-right: 6px;"></i>{{ connectLabel }}</el-button>
         </el-row>
         <el-row v-if="generatedLink" style="margin-top: 18px;">
           <el-col :span="24">
@@ -89,14 +112,19 @@
 </template>
 
 <script>
+import { PROTOCOLS, protocolSpec, PROTOCOL_ROUTES } from '@/utils/remote'
+
 export default {
   data () {
     return {
+      protocols: PROTOCOLS,
       sshInfo: {
+        protocol: 'ssh',
         hostname: '',
         port: '',
         username: '',
         password: '',
+        domain: '',
         privateKey: '',
         passphrase: '',
         command: ''
@@ -104,6 +132,22 @@ export default {
       privateKeyFileName: '',
       generatedLink: '',
       isDarkTheme: false
+    }
+  },
+  computed: {
+    currentProtocol () {
+      return protocolSpec(this.sshInfo.protocol)
+    },
+    connectLabel () {
+      return `连接${this.currentProtocol.label}`
+    },
+    passwordLabel () {
+      return this.sshInfo.protocol === 'vnc' ? '密码 (VNC Password)' : '密码 (Password)'
+    },
+    passwordPlaceholder () {
+      if (this.sshInfo.protocol === 'vnc') return '请输入 VNC 密码（无密码可留空）'
+      if (this.sshInfo.protocol === 'rdp') return '请输入 Windows 登录密码'
+      return '请输入密码'
     }
   },
   watch: {
@@ -120,10 +164,12 @@ export default {
     if (savedInfo) {
       const info = JSON.parse(savedInfo)
       this.sshInfo = {
+        protocol: info.protocol || 'ssh',
         hostname: info.hostname || '',
         port: info.port || '',
         username: info.username || '',
         password: info.password || '',
+        domain: info.domain || '',
         privateKey: info.privateKey || '',
         passphrase: info.passphrase || '',
         command: info.command || ''
@@ -139,6 +185,8 @@ export default {
     if (savedTheme !== null) {
       this.isDarkTheme = savedTheme === 'true'
     }
+    // 恢复主题时同步到 html 根元素，保证 body/#app 背景正确
+    document.documentElement.classList.toggle('dark-theme', this.isDarkTheme)
     
     // 添加 Font Awesome CSS
     const link = document.createElement('link')
@@ -147,33 +195,87 @@ export default {
     document.head.appendChild(link)
   },
   methods: {
-    onConnect () {
-      // 清除之前的认证信息
-      sessionStorage.removeItem('sshInfo')
-      
+    // 切换协议：仅在端口为空或仍是上一协议默认端口时才替换，
+    // 避免覆盖用户手填的自定义端口；同时清理该协议不适用的字段。
+    selectProtocol (value) {
+      if (this.sshInfo.protocol === value) return
+      const prev = protocolSpec(this.sshInfo.protocol)
+      const next = protocolSpec(value)
+      const currentPort = Number(this.sshInfo.port)
+      if (!currentPort || currentPort === prev.defaultPort) {
+        this.sshInfo.port = next.defaultPort
+      }
+      this.sshInfo.protocol = value
+      if (!next.needPrivateKey) {
+        this.sshInfo.privateKey = ''
+        this.sshInfo.passphrase = ''
+        this.privateKeyFileName = ''
+      }
+      if (!next.needCommand) {
+        this.sshInfo.command = ''
+      }
+      if (!next.needDomain) {
+        this.sshInfo.domain = ''
+      }
+      if (!next.needUsername) {
+        this.sshInfo.username = ''
+      }
+      this.generatedLink = ''
+    },
+    // 按协议校验必填项，返回 true 表示通过
+    validate () {
+      const spec = this.currentProtocol
       if (!this.sshInfo.hostname) {
         this.$message.error('请输入主机地址！')
         this.$nextTick(() => {
           this.$refs.hostnameInput && this.$refs.hostnameInput.focus()
         })
-        return
+        return false
       }
-      if (!this.sshInfo.username) {
-        this.$message.error('请输入用户名！')
+      if (spec.needUsername && !this.sshInfo.username) {
+        this.$message.error(`请输入${spec.label}用户名！`)
         this.$nextTick(() => {
           this.$refs.usernameInput && this.$refs.usernameInput.focus()
         })
-        return
+        return false
       }
-      if (!this.sshInfo.password && !this.sshInfo.privateKey) {
-        this.$message.error('请输入密码或上传密钥！')
+      if (this.sshInfo.protocol === 'ssh') {
+        if (!this.sshInfo.password && !this.sshInfo.privateKey) {
+          this.$message.error('请输入密码或上传密钥！')
+          this.$nextTick(() => {
+            this.$refs.passwordInput && this.$refs.passwordInput.focus()
+          })
+          return false
+        }
+      } else if (this.sshInfo.protocol === 'rdp' && !this.sshInfo.password) {
+        // VNC 允许空密码（部分服务器使用 None 安全类型），RDP 必须提供凭据
+        this.$message.error('请输入 Windows 登录密码！')
         this.$nextTick(() => {
           this.$refs.passwordInput && this.$refs.passwordInput.focus()
         })
-        return
+        return false
       }
-
-      // 根据实际使用的登录方式清理未使用的认证信息
+      return true
+    },
+    buildConnectionInfo () {
+      return {
+        protocol: this.sshInfo.protocol,
+        hostname: this.sshInfo.hostname,
+        port: this.sshInfo.port || this.currentProtocol.defaultPort,
+        username: this.sshInfo.username,
+        password: this.sshInfo.password || '',
+        domain: this.sshInfo.domain || '',
+        privateKey: this.sshInfo.privateKey || '',
+        passphrase: this.sshInfo.passphrase || '',
+        command: this.sshInfo.command || ''
+      }
+    },
+    onConnect () {
+      // 清除之前的认证信息
+      sessionStorage.removeItem('sshInfo')
+      
+      if (!this.validate()) return
+      // 根据实际使用的登录方式清理未使用的认证信息（仅 SSH 支持密钥登录）
       if (this.sshInfo.privateKey && this.sshInfo.privateKey.trim()) {
         this.sshInfo.password = ''
       } else if (this.sshInfo.password) {
@@ -184,23 +286,19 @@ export default {
       }
 
       // 保存完整连接信息到 localStorage
-      const connectionInfo = {
-        hostname: this.sshInfo.hostname,
-        port: this.sshInfo.port || 22,
-        username: this.sshInfo.username,
-        password: this.sshInfo.password || '',
-        privateKey: this.sshInfo.privateKey || '',
-        passphrase: this.sshInfo.passphrase || '',
-        command: this.sshInfo.command || ''
-      }
-      localStorage.setItem('connectionInfo', JSON.stringify(connectionInfo))
+      localStorage.setItem('connectionInfo', JSON.stringify(this.buildConnectionInfo()))
 
+      const spec = this.currentProtocol
       // 构建查询参数
       const query = {
+        protocol: spec.value,
         hostname: encodeURIComponent(this.sshInfo.hostname),
-        port: Number(this.sshInfo.port) || 22,
-        username: encodeURIComponent(this.sshInfo.username),
+        port: Number(this.sshInfo.port) || spec.defaultPort,
+        username: encodeURIComponent(this.sshInfo.username || ''),
         command: encodeURIComponent(this.sshInfo.command || '')
+      }
+      if (this.sshInfo.domain) {
+        query.domain = encodeURIComponent(this.sshInfo.domain)
       }
 
       // 根据登录方式设置认证信息
@@ -213,20 +311,22 @@ export default {
         query.password = btoa(this.sshInfo.password)
       }
 
-      // 新标签页打开
-      const url = this.$router.resolve({ path: '/terminal', query }).href
+      // 按协议在对应控制台中打开：ssh→终端，rdp/vnc→远程桌面
+      const url = this.$router.resolve({ path: PROTOCOL_ROUTES[spec.value], query }).href
       window.open(url, '_blank')
     },
     onReset () {
-      // 清除表单数据
-      this.sshInfo = { 
-        hostname: '', 
-        port: '', 
-        username: '', 
-        password: '', 
-        command: '', 
-        privateKey: '', 
-        passphrase: '' 
+      // 清除表单数据（保留当前所选协议，仅清空连接目标）
+      this.sshInfo = {
+        protocol: this.sshInfo.protocol,
+        hostname: '',
+        port: '',
+        username: '',
+        password: '',
+        domain: '',
+        command: '',
+        privateKey: '',
+        passphrase: ''
       }
       this.privateKeyFileName = ''
       this.generatedLink = ''
@@ -246,39 +346,24 @@ export default {
         this.$message.warning('密钥方式登录不支持生成快捷链接，请改用密码登录方式')
         return
       }
-      if (!this.sshInfo.hostname) {
-        this.$message.error('请输入主机地址！')
-        this.$nextTick(() => {
-          this.$refs.hostnameInput && this.$refs.hostnameInput.focus()
-        })
-        return
-      }
-      if (!this.sshInfo.username) {
-        this.$message.error('请输入用户名！')
-        this.$nextTick(() => {
-          this.$refs.usernameInput && this.$refs.usernameInput.focus()
-        })
-        return
-      }
-      if (!this.sshInfo.password && !this.sshInfo.privateKey) {
-        this.$message.error('请输入密码或上传密钥以生成链接！')
-        this.$nextTick(() => {
-          this.$refs.passwordInput && this.$refs.passwordInput.focus()
-        })
-        return
-      }
+      if (!this.validate()) return
+      const spec = this.currentProtocol
       const url = new URL(window.location.href)
-      url.pathname = '/terminal'
+      url.pathname = PROTOCOL_ROUTES[spec.value]
       const cleanSshInfo = {}
-      const infoToProcess = { ...this.sshInfo, port: this.sshInfo.port || 22 }
+      const infoToProcess = {
+        protocol: spec.value,
+        hostname: this.sshInfo.hostname,
+        port: this.sshInfo.port || spec.defaultPort,
+        username: this.sshInfo.username,
+        password: this.sshInfo.password,
+        domain: this.sshInfo.domain,
+        command: this.sshInfo.command
+      }
       for (const key in infoToProcess) {
-        if (infoToProcess[key] !== '' && infoToProcess[key] !== null) {
-          if (key === 'password') {
-            cleanSshInfo[key] = btoa(infoToProcess[key])
-          } else {
-            cleanSshInfo[key] = infoToProcess[key]
-          }
-        }
+        const value = infoToProcess[key]
+        if (value === '' || value === null || value === undefined) continue
+        cleanSshInfo[key] = key === 'password' ? btoa(value) : value
       }
       url.search = new URLSearchParams(cleanSshInfo).toString()
       this.generatedLink = url.href
@@ -295,6 +380,8 @@ export default {
     toggleTheme () {
       this.isDarkTheme = !this.isDarkTheme;
       localStorage.setItem('isDarkTheme', this.isDarkTheme);
+      // 同步到 html 根元素，使 body/#app 背景跟随暗黑模式
+      document.documentElement.classList.toggle('dark-theme', this.isDarkTheme);
     },
     handlePrivateKeyUpload(file) {
       // 上传密钥时清除密码，确保使用密钥登录
@@ -479,6 +566,76 @@ export default {
   padding: 0.9rem 1rem;
   border-radius: 10px;
   transition: all 0.3s;
+}
+
+/* ---- 协议选择器（SSH / RDP / VNC）---- */
+.protocol-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.protocol-item {
+  cursor: pointer;
+  border-radius: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: hsl(0deg 0% 100% / 6%);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  transition: all 0.25s;
+  text-align: center;
+  user-select: none;
+}
+
+.protocol-item:hover {
+  border-color: var(--primary);
+}
+
+.protocol-item.is-active {
+  border-color: var(--primary);
+  background: rgba(64, 158, 255, 0.16);
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.22);
+}
+
+.protocol-name {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--text-color);
+}
+
+.protocol-desc {
+  font-size: 11.5px;
+  margin-top: 3px;
+  color: var(--text-color);
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.protocol-port {
+  font-size: 11px;
+  margin-top: 2px;
+  color: var(--primary);
+  opacity: 0.9;
+}
+
+@media (max-width: 768px) {
+  .protocol-picker {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .protocol-desc {
+    display: none;
+  }
+
+  .protocol-name {
+    font-size: 15px;
+  }
 }
 
 .login-container ::v-deep .el-form-item .el-upload.upload-key {

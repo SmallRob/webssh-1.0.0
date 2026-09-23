@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"webssh/controller"
+	"webssh/core"
 
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
@@ -79,12 +80,37 @@ func main() {
 	server.GET("/term", func(c *gin.Context) {
 		controller.TermWs(c, time.Duration(timeout)*time.Minute)
 	})
+	// RDP / VNC 远程桌面通道：与 /term 采用相同的 sshInfo 描述符，
+	// 由 core 层的 RDCleanPath 代理 / RFB 中继接管。
+	server.GET("/rdp", func(c *gin.Context) {
+		controller.RemoteWs(c, core.ProtocolRDP)
+	})
+	server.GET("/vnc", func(c *gin.Context) {
+		controller.RemoteWs(c, core.ProtocolVNC)
+	})
+	// 内置协议清单（ssh / rdp / vnc），供前端协议选择器使用
+	server.GET("/protocols", func(c *gin.Context) {
+		c.JSON(200, controller.ProtocolList(c))
+	})
 	server.GET("/check", func(c *gin.Context) {
-		responseBody := controller.CheckSSH(c)
+		responseBody := controller.CheckConnection(c)
 		responseBody.Data = map[string]interface{}{
 			"savePass": savePass,
 		}
 		c.JSON(200, responseBody)
+	})
+	// 快捷服务器列表：每次请求实时读取配置文件，修改后无需重启容器
+	server.GET("/servers", func(c *gin.Context) {
+		path := os.Getenv("SERVERS_FILE")
+		if path == "" {
+			path = "/webssh/servers.json"
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			c.JSON(200, []interface{}{})
+			return
+		}
+		c.Data(200, "application/json; charset=utf-8", data)
 	})
 	file := server.Group("/file")
 	{

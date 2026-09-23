@@ -92,5 +92,25 @@ export default {
     // Terminal
     webSSHConsole: 'WebSSH Console',
     github: 'GitHub',
-    toggleSFTP: 'Toggle SFTP'
+    toggleSFTP: 'Toggle SFTP',
+
+    // Protocol / Remote desktop
+    protocol: 'Protocol',
+    sshTerminal: 'SSH Terminal',
+    rdpConsole: 'RDP Desktop',
+    vncConsole: 'VNC Desktop',
+    remoteDesktop: 'Remote Desktop',
+    disconnect: 'Disconnect',
+    reconnect: 'Reconnect',
+    fitWindow: 'Fit window',
+    originalRatio: 'Original size',
+    fullscreen: 'Fullscreen',
+    onlyView: 'View only',
+    controllable: 'Control',
+    syncResolution: 'Sync resolution',
+    connected: 'Connected',
+    connecting: 'Connecting',
+    notConnected: 'Not connected',
+    sessionClosed: 'Session closed',
+    connectionFailed: 'Connection failed'
 }
