@@ -154,18 +154,20 @@ docker-compose up -d
 # 一键：构建镜像 -> 重建容器 -> 健康检查
 ./deploy.sh
 
-# 或手动
+# 或手动（先删旧容器再创建，原因见下）
 docker build -t webssh:1.0.0 .
-DOCKER_API_VERSION=1.44 docker-compose up -d
+docker rm -f webssh
+docker-compose up -d
 ```
 
-> **注意（务必遵守）**：若服务器安装的是 **docker-compose 1.29（v1）**，请始终带上
-> `DOCKER_API_VERSION=1.44`。v1 在重建容器时会读取镜像的 `ContainerConfig` 字段，
-> 而 Docker Engine API ≥ 1.45 已移除该字段，直接执行 `docker-compose up -d`
-> 会抛出 `KeyError: 'ContainerConfig'`，且此时旧容器已被删除，导致服务中断。
-> 引擎最低兼容 API 为 1.44（该版本仍返回 `ContainerConfig`），因此固定 1.44 即可。
-> 注意不要固定到 1.41 等更低版本——低于引擎最低 API 会让 `docker build` 直接被拒绝。
-> 该变量已内置在 `deploy.sh` 中。
+> **注意（务必遵守）**：若服务器安装的是 **docker-compose 1.29（v1）**，它「原地重建」
+> 容器时会读取镜像的 `ContainerConfig` 字段，而 Docker Engine API ≥ 1.45 已移除该字段，
+> 因此 `docker-compose up -d` 在重建场景必抛 `KeyError: 'ContainerConfig'`——且失败发生在
+> 旧容器被删除之后，服务会中断。实测固定 `DOCKER_API_VERSION=1.44` 也无法绕过
+> （固定为 1.41 等更低版本还会让 `docker build` 被引擎以「最低支持 1.44」拒绝）。
+>
+> 稳妥做法是**先删除旧容器，让 compose 走全新创建路径**（不读旧镜像配置，不触发该缺陷），
+> 这正是 `deploy.sh` 的做法；脚本里还带有等价的 `docker run` 回退兜底。
 
 快捷服务器列表由 `servers.json` 通过 compose 只读挂载到容器内 `/webssh/servers.json`，
 由后端 `/servers` 接口每次请求实时读取，**修改后无需重启容器**。
