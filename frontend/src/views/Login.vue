@@ -143,11 +143,11 @@
           :key="s.name"
           type="button"
           class="qs-btn"
+          :class="{ 'is-admin-only': s.adminOnly }"
           :title="'连接 ' + s.name"
           @click="fillFromQuick(s)"
         >
           <b>{{ s.name }}</b>
-          <span v-if="s.adminOnly" class="qs-admin-tag"><i class="fas fa-user-shield"></i> 仅管理员</span>
         </button>
       </div>
       <div v-else class="qs-empty">暂无快捷连接</div>
@@ -211,9 +211,6 @@
         <el-button size="small" type="primary" :loading="serverSaving" @click="saveServers">保存</el-button>
       </div>
     </el-dialog>
-    <div class="footer">
-      <a href="https://github.com/eooce/webssh" target="_blank" rel="noopener noreferrer">WebSSH Console | Powered by eooce</a>
-    </div>
   </div>
 </template>
 
@@ -976,15 +973,14 @@ export default {
   font-size: 14px;
 }
 
-.qs-admin-tag {
-  display: inline-block;
-  margin-top: 2px;
-  font-size: 10px;
-  padding: 0 6px;
-  border-radius: 6px;
+/* 仅管理员条目：黄色边框标识（不再显示文字标签） */
+.qs-btn.is-admin-only {
+  border-color: rgba(255, 180, 84, 0.75);
+}
+.qs-btn.is-admin-only:hover {
+  border-color: #ffb454;
   color: #ffb454;
-  border: 1px solid rgba(255, 180, 84, 0.4);
-  background: rgba(255, 180, 84, 0.1);
+  box-shadow: 0 2px 8px rgba(255, 180, 84, 0.25);
 }
 
 .qs-empty {
@@ -1121,19 +1117,12 @@ export default {
   .el-row[type="flex"] {
     margin-top: 8px !important;
   }
-  
-  /* 手机端底部间距调整，避免与footer重合 */
+
   .login-container {
-    padding-bottom: 120px !important;
+    padding-bottom: 40px !important;
     min-height: auto !important;
   }
-  
-  .footer {
-    position: relative !important;
-    bottom: auto !important;
-    margin-top: 20px !important;
-  }
-  
+
   .card {
     margin: 10px auto !important;
   }
@@ -1163,29 +1152,6 @@ export default {
   -webkit-backdrop-filter: blur(5px) !important;
   color: #fff !important;
   border: 1px solid rgba(255, 255, 255, 0.2) !important;
-}
-
-.footer {
-  position: absolute;
-  bottom: 8px;
-  text-align: center;
-  width: 100%;
-  color: var(--text-color);
-  opacity: 0.6;
-  transition: color 0.3s;
-}
-
-.footer a {
-  font-size: 0.9rem;
-  color: #000000;
-  font-family: system-ui;
-  color: #fefefe;
-  text-decoration: none;
-  transition: color 0.3s;
-}
-
-.footer a:hover {
-  color: #05d899;
 }
 
 .theme-switch {

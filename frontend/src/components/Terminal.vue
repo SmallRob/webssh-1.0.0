@@ -9,7 +9,6 @@
       </div>
     </div>
     <div class="terminal-footer">
-      <span>WebSSH Console | Powered by eooce</span>
       <a href="https://github.com/eooce/webssh" target="_blank" class="github-link" title="GitHub">
         <i class="fab fa-github"></i>
       </a>
