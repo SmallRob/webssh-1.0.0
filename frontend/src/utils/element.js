@@ -23,7 +23,8 @@ import {
     Divider,
     Tooltip,
     Checkbox,
-    Switch
+    Switch,
+    Drawer
 } from 'element-ui'
 const element = {
     install: function (Vue) {
@@ -50,6 +51,7 @@ const element = {
         Vue.use(Tooltip)
         Vue.use(Checkbox)
         Vue.use(Switch)
+        Vue.use(Drawer)
         Vue.prototype.$message = Message
     }
 }

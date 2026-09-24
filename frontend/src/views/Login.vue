@@ -21,7 +21,7 @@
         @click="exitAdmin"
       >管理员中</el-button>
       <div class="theme-switch" @click="toggleTheme">
-        <i class="fas" :class="isDarkTheme ? 'fa-sun' : 'fa-moon'" style="margin-top: -30px;"></i>
+        <i class="fas" :class="isDarkTheme ? 'fa-sun' : 'fa-moon'"></i>
       </div>
     </div>
     <div class="card" style="margin: 12px auto;">
@@ -128,14 +128,10 @@
     <div class="quick-servers" v-if="quickServers.length || admin.enabled">
       <div class="qs-head">
         <span class="qs-title">快捷连接 (Quick Connect)</span>
-        <el-button
-          v-if="admin.enabled && admin.isAdmin"
-          size="mini"
-          type="text"
-          icon="el-icon-setting"
-          class="qs-edit"
-          @click="openServerEditor"
-        >编辑</el-button>
+        <div class="qs-actions" v-if="admin.enabled && admin.isAdmin">
+          <el-button size="mini" type="text" icon="el-icon-document-checked" class="qs-edit" @click="openAudit">审计</el-button>
+          <el-button size="mini" type="text" icon="el-icon-setting" class="qs-edit" @click="openServerEditor">编辑</el-button>
+        </div>
       </div>
       <div class="qs-list" v-if="quickServers.length">
         <button
@@ -211,12 +207,49 @@
         <el-button size="small" type="primary" :loading="serverSaving" @click="saveServers">保存</el-button>
       </div>
     </el-dialog>
+    <!-- 审计日志侧边栏（仅管理员）：SSH 实时查看目标服务器审计日志 -->
+    <el-drawer
+      title="审计日志"
+      :visible.sync="auditVisible"
+      direction="rtl"
+      size="62%"
+      custom-class="audit-drawer"
+      :before-close="closeAudit"
+    >
+      <div class="audit-body">
+        <div class="audit-toolbar">
+          <el-select v-model="auditTarget" size="small" placeholder="选择服务器" class="audit-target" @change="onAuditTargetChange">
+            <el-option v-for="s in quickServers" :key="s.name" :label="s.name" :value="s.name" />
+          </el-select>
+          <el-select v-model="auditFile" size="small" placeholder="日志文件" class="audit-file">
+            <el-option v-for="f in auditFiles" :key="f" :label="f" :value="f" />
+          </el-select>
+          <el-input
+            v-model="auditPassword"
+            size="small"
+            type="password"
+            placeholder="root 密码（已配置密钥可留空）"
+            show-password
+            class="audit-pass"
+            @keyup.enter.native="connectAudit"
+          />
+          <el-button size="small" type="primary" :loading="auditConnecting" @click="connectAudit">查看</el-button>
+        </div>
+        <div ref="auditTerm" class="audit-term"></div>
+        <div class="audit-tip">
+          实时 tail 输出，仅管理员可用；目录 <code>{{ auditDir }}</code>，密码仅本次会话使用、不落盘。
+        </div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script>
-import { PROTOCOLS, protocolSpec, PROTOCOL_ROUTES } from '@/utils/remote'
-import { getAdminStatus, adminLogin, adminLogout, getQuickServers, getServerDetail, saveQuickServers } from '@/api/common'
+import { Terminal } from 'xterm'
+import { FitAddon } from 'xterm-addon-fit'
+import { PROTOCOLS, protocolSpec, PROTOCOL_ROUTES, wsUrl } from '@/utils/remote'
+import { b64EncodeUtf8 } from '@/utils/codec'
+import { getAdminStatus, adminLogin, adminLogout, getQuickServers, getServerDetail, saveQuickServers, getAuditFiles } from '@/api/common'
 
 const PROTOCOL_VALUES = PROTOCOLS.map(p => p.value)
 
@@ -255,7 +288,18 @@ export default {
       // 快捷连接编辑浮窗
       serverEditorVisible: false,
       editableServers: [],
-      serverSaving: false
+      serverSaving: false,
+      // 审计日志侧边栏
+      auditVisible: false,
+      auditTarget: '',
+      auditFile: '',
+      auditFiles: [],
+      auditPassword: '',
+      auditConnecting: false,
+      auditDir: '/data/audit',
+      auditTerm: null,
+      auditFit: null,
+      auditWs: null
     }
   },
   computed: {
@@ -345,6 +389,10 @@ export default {
     link.rel = 'stylesheet'
     link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css'
     document.head.appendChild(link)
+  },
+  beforeDestroy () {
+    this.closeAuditWs()
+    this.destroyAuditTerm()
   },
   methods: {
     loadAdminStatus () {
@@ -484,6 +532,139 @@ export default {
       }).finally(() => {
         this.serverSaving = false
       })
+    },
+    // ---- 审计日志侧边栏 ----
+    // SSH 认证信息按需构建：密码来自管理员输入（仅内存），未填则交给后端密钥
+    buildAuditSshInfo () {
+      const target = this.quickServers.find(s => s.name === this.auditTarget) || {}
+      return b64EncodeUtf8(JSON.stringify({
+        protocol: 'ssh',
+        hostname: target.host || '',
+        port: Number(target.port) || 22,
+        username: 'root',
+        logintype: this.auditPassword ? 0 : 1,
+        password: this.auditPassword || ''
+      }))
+    },
+    openAudit () {
+      this.auditVisible = true
+      this.$nextTick(() => {
+        this.initAuditTerm()
+        if (!this.auditTarget && this.quickServers.length) {
+          this.auditTarget = this.quickServers[0].name
+        }
+      })
+    },
+    initAuditTerm () {
+      const el = this.$refs.auditTerm
+      if (!el) return
+      el.innerHTML = ''
+      const term = new Terminal({
+        cursorBlink: false,
+        disableStdin: true,
+        fontSize: 12,
+        fontFamily: 'DejaVu Sans Mono, monospace',
+        theme: { background: '#0b0f14', foreground: '#d7e0ea', cursor: '#ffffff' }
+      })
+      const fit = new FitAddon()
+      term.loadAddon(fit)
+      term.open(el)
+      try { fit.fit() } catch (e) { /* 容器未就绪时忽略 */ }
+      term.writeln('\x1b[33m选择服务器与日志文件后点击「查看」。\x1b[0m')
+      this.auditTerm = term
+      this.auditFit = fit
+      this.auditResizeHandler = () => { try { fit.fit() } catch (e) { /* ignore */ } }
+      window.addEventListener('resize', this.auditResizeHandler)
+    },
+    destroyAuditTerm () {
+      if (this.auditResizeHandler) {
+        window.removeEventListener('resize', this.auditResizeHandler)
+        this.auditResizeHandler = null
+      }
+      if (this.auditTerm) {
+        try { this.auditTerm.dispose() } catch (e) { /* ignore */ }
+        this.auditTerm = null
+        this.auditFit = null
+      }
+    },
+    closeAudit (done) {
+      this.closeAuditWs()
+      this.destroyAuditTerm()
+      this.auditVisible = false
+      if (typeof done === 'function') done()
+    },
+    closeAuditWs () {
+      if (this.auditWs) {
+        try { this.auditWs.close() } catch (e) { /* ignore */ }
+        this.auditWs = null
+      }
+    },
+    async connectAudit () {
+      if (this.auditConnecting) return
+      if (!this.auditTarget) {
+        this.$message.error('请选择服务器！')
+        return
+      }
+      if (!this.auditFile) {
+        this.$message.error('请选择日志文件！')
+        return
+      }
+      this.auditConnecting = true
+      try {
+        if (!this.auditFiles.length) {
+          await this.loadAuditFiles()
+        }
+        if (!this.auditFile) {
+          return
+        }
+        this.closeAuditWs()
+        if (!this.auditTerm) this.initAuditTerm()
+        this.auditTerm.clear()
+        const ws = new WebSocket(wsUrl('/audit/tail', {
+          sshInfo: this.buildAuditSshInfo(),
+          file: this.auditFile
+        }))
+        this.auditWs = ws
+        ws.onmessage = ev => {
+          if (this.auditTerm) this.auditTerm.write(ev.data)
+        }
+        ws.onclose = () => {
+          if (this.auditTerm) this.auditTerm.writeln('\r\n\x1b[33m[连接已关闭]\x1b[0m')
+          if (this.auditWs === ws) this.auditWs = null
+        }
+        ws.onerror = () => {
+          if (this.auditTerm) this.auditTerm.writeln('\r\n\x1b[31m[连接异常，请检查 root 密码或网络]\x1b[0m')
+        }
+      } finally {
+        this.auditConnecting = false
+      }
+    },
+    onAuditTargetChange () {
+      this.auditFile = ''
+      this.auditFiles = []
+      this.loadAuditFiles()
+    },
+    async loadAuditFiles () {
+      if (!this.auditTarget) {
+        this.$message.error('请选择服务器！')
+        return
+      }
+      try {
+        const res = await getAuditFiles(this.buildAuditSshInfo())
+        const files = (res && res.Data) || []
+        this.auditFiles = files
+        if (res && res.Msg !== 'success') {
+          this.$message.error(res.Msg)
+        } else if (!files.length) {
+          this.$message.warning('审计目录下没有日志文件')
+        } else {
+          if (!this.auditFile || files.indexOf(this.auditFile) === -1) {
+            this.auditFile = files[0]
+          }
+        }
+      } catch (err) {
+        this.$message.error((err && err.data && err.data.Msg) || '读取文件列表失败')
+      }
     },
     // 点击协议卡片：受门禁保护的协议先解锁再切换
     onPickProtocol (value) {
@@ -1166,10 +1347,58 @@ export default {
 }
 
 .theme-switch i {
-  margin-top: -20px;
+  margin-top: 0;
   font-size: 20px;
   color: var(--icon-color);
   transition: color 0.3s;
+}
+
+/* ---- 审计日志侧边栏 ---- */
+.qs-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.audit-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0 16px 12px;
+  box-sizing: border-box;
+}
+
+.audit-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.audit-target { flex: 0 0 130px; }
+.audit-file { flex: 1; min-width: 140px; }
+.audit-pass { flex: 0 0 190px; }
+
+.audit-term {
+  flex: 1;
+  min-height: 420px;
+  background: #0b0f14;
+  border-radius: 10px;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.audit-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #999;
+  line-height: 1.6;
+}
+.audit-tip code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(128, 128, 128, 0.15);
 }
 
 /* Light theme variables */
@@ -1307,5 +1536,36 @@ html.dark-theme .admin-dialog .el-input__inner {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.2);
   color: #e6edf3;
+}
+</style>
+
+<style lang="scss">
+/* ===== 审计抽屉适配（非 scoped）：append-to-body 后脱离组件作用域 ===== */
+.audit-drawer .el-drawer__header {
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+}
+
+html.dark-theme .audit-drawer .el-drawer {
+  background: #232a34;
+}
+html.dark-theme .audit-drawer .el-drawer__title {
+  color: #e6edf3;
+}
+html.dark-theme .audit-drawer .el-drawer__close-btn {
+  color: #9aa7b4;
+}
+html.dark-theme .audit-drawer .el-drawer__header {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+html.dark-theme .audit-drawer .el-select .el-input__inner,
+html.dark-theme .audit-drawer .el-input__inner {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #e6edf3;
+}
+html.dark-theme .audit-drawer .audit-tip {
+  color: #9aa7b4;
 }
 </style>

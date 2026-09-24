@@ -181,6 +181,13 @@ func main() {
 		}
 		c.JSON(200, responseBody)
 	})
+	// 审计日志（仅管理员）：列出目标服务器审计目录 / WebSocket 实时查看日志
+	server.GET("/audit/list", func(c *gin.Context) {
+		controller.AuditList(c)
+	})
+	server.GET("/audit/tail", func(c *gin.Context) {
+		controller.AuditTailWs(c)
+	})
 	file := server.Group("/file")
 	{
 		file.GET("/list", func(c *gin.Context) {

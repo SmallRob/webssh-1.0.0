@@ -26,6 +26,12 @@ services:
       - "rdpRequireAdmin=true"
       # VNC 是否需要管理员模式（默认不需要）
       - "vncRequireAdmin=false"
+      # 审计日志（仅管理员）：目标服务器上的日志目录与 SSH 用户
+      - "AUDIT_DIR=/data/audit"
+      - "AUDIT_USER=root"
+      # 可选：挂载私钥免密审计（把私钥放到 ./audit_key 并解开下行注释）
+      # - "AUDIT_SSH_KEY=/webssh/audit_key"
+      # - "AUDIT_KEY_PASSPHRASE=CHANGE_ME_IF_KEY_ENCRYPTED"
     restart: unless-stopped
     volumes:
       # 快捷服务器配置：只填 name/host/port，凭据由用户连接时手动输入；

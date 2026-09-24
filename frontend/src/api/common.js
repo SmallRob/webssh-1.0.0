@@ -24,3 +24,8 @@ export function getServerDetail() {
 export function saveQuickServers(servers) {
     return request.post('/servers/save', servers)
 }
+
+// 审计日志（仅管理员）：列出目标服务器审计目录文件
+export function getAuditFiles(sshInfo) {
+    return request.get(`/audit/list?sshInfo=${sshInfo}`)
+}

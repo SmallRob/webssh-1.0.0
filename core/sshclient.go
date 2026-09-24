@@ -91,6 +91,20 @@ func (sclient *SSHClient) GenerateClient() error {
 	return nil
 }
 
+// RunStream 在 SSH 会话上执行命令（非 pty），把 stdout/stderr 实时回写到 WebSocket。
+// 阻塞直到命令结束或 WebSocket 写失败（对端断开）。用于审计日志 tail -F 等流式场景。
+func (sclient *SSHClient) RunStream(command string, ws *websocket.Conn) error {
+	session, err := sclient.Client.NewSession()
+	if err != nil {
+		return err
+	}
+	sclient.Session = session
+	w := &wsOutput{ws: ws}
+	session.Stdout = w
+	session.Stderr = w
+	return session.Run(command)
+}
+
 // InitTerminal 初始化终端
 func (sclient *SSHClient) InitTerminal(ws *websocket.Conn, rows, cols int) *SSHClient {
 	sshSession, err := sclient.Client.NewSession()
