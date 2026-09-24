@@ -24,11 +24,13 @@ const (
 )
 
 // QuickServer 快捷服务器条目（servers.json 的标准结构）。
+// Disabled 为 true 表示已下架：公开列表（所有人）都不返回，仅管理员编辑浮窗可见可恢复。
 type QuickServer struct {
 	Name      string `json:"name"`
 	Host      string `json:"host"`
 	Port      int    `json:"port,omitempty"`
 	AdminOnly bool   `json:"adminOnly,omitempty"`
+	Disabled  bool   `json:"disabled,omitempty"`
 }
 
 // serversPath 返回 servers.json 的实际路径（SERVERS_FILE 可覆盖）。
@@ -69,7 +71,7 @@ func stripCredentials(item map[string]interface{}) map[string]interface{} {
 }
 
 // ListPublicServers GET /servers 的公开列表：
-// 剥离凭据；管理员可见全部条目，非管理员过滤掉 adminOnly。
+// 剥离凭据；过滤已禁用（disabled）条目；非管理员再过滤掉 adminOnly。
 func ListPublicServers(c *gin.Context) []map[string]interface{} {
 	raw, err := readRawServers()
 	if err != nil {
@@ -78,6 +80,9 @@ func ListPublicServers(c *gin.Context) []map[string]interface{} {
 	isAdmin := IsAdmin(c)
 	list := make([]map[string]interface{}, 0, len(raw))
 	for _, item := range raw {
+		if isAdminVal(item["disabled"]) {
+			continue
+		}
 		if isAdminVal(item["adminOnly"]) && !isAdmin {
 			continue
 		}

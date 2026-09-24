@@ -174,29 +174,35 @@
         <el-button size="small" type="primary" :loading="adminLoading" @click="unlockAdmin">解锁</el-button>
       </div>
     </el-dialog>
-    <!-- 快捷连接编辑浮窗（仅管理员）：新增 / 修改 / 删除 / 标记仅管理员 -->
+    <!-- 快捷连接编辑浮窗（仅管理员）：新增 / 修改 / 删除 / 启用禁用 / 仅管理员 -->
     <el-dialog
       title="编辑快捷连接"
       :visible.sync="serverEditorVisible"
-      width="640px"
+      width="700px"
       append-to-body
       custom-class="server-editor-dialog"
     >
       <div class="server-editor-tip">
-        仅保存名称与地址端口，连接时用户手动输入凭据；勾选「仅管理员」后该条目对普通用户隐藏。
+        仅保存名称与地址端口，连接时用户手动输入凭据。停用的条目对所有人隐藏；勾选「仅管理员」后该条目仅管理员可见。
       </div>
       <div class="srv-head-row">
         <span class="srv-col-name">名称</span>
         <span class="srv-col-host">主机地址</span>
         <span class="srv-col-port">端口</span>
+        <span class="srv-col-state">启用</span>
         <span class="srv-col-admin">仅管理员</span>
         <span class="srv-col-op"></span>
       </div>
-      <div v-for="(s, idx) in editableServers" :key="idx" class="srv-row">
+      <div v-for="(s, idx) in editableServers" :key="idx" class="srv-row" :class="{ 'is-disabled': !s.enabled }">
         <el-input v-model="s.name" size="small" placeholder="名称" class="srv-col-name" />
         <el-input v-model="s.host" size="small" placeholder="IP / 域名" class="srv-col-host" />
         <el-input v-model.number="s.port" size="small" placeholder="22" class="srv-col-port" />
-        <el-checkbox v-model="s.adminOnly" class="srv-col-admin" />
+        <div class="srv-col-state">
+          <el-switch v-model="s.enabled" />
+        </div>
+        <div class="srv-col-admin">
+          <el-checkbox v-model="s.adminOnly" />
+        </div>
         <el-button size="mini" type="text" icon="el-icon-delete" class="srv-col-op" @click="removeServer(idx)" />
       </div>
       <el-button size="small" plain icon="el-icon-plus" @click="addServer">新增条目</el-button>
@@ -437,7 +443,8 @@ export default {
           name: s.name || '',
           host: s.host || '',
           port: Number(s.port) || 22,
-          adminOnly: !!s.adminOnly
+          adminOnly: !!s.adminOnly,
+          enabled: !s.disabled
         }))
         this.serverEditorVisible = true
       }).catch(err => {
@@ -445,15 +452,23 @@ export default {
       })
     },
     addServer () {
-      this.editableServers.push({ name: '', host: '', port: 22, adminOnly: false })
+      this.editableServers.push({ name: '', host: '', port: 22, adminOnly: false, enabled: true })
     },
     removeServer (idx) {
       this.editableServers.splice(idx, 1)
     },
     saveServers () {
-      const rows = this.editableServers.filter(s => (s.name || '').trim() || (s.host || '').trim())
+      const rows = this.editableServers
+        .filter(s => (s.name || '').trim() || (s.host || '').trim())
+        .map(s => ({
+          name: (s.name || '').trim(),
+          host: (s.host || '').trim(),
+          port: Number(s.port) || 22,
+          adminOnly: !!s.adminOnly,
+          disabled: !s.enabled
+        }))
       for (const s of rows) {
-        if (!s.name.trim() || !s.host.trim()) {
+        if (!s.name || !s.host) {
           this.$message.error('名称与主机地址都必须填写！')
           return
         }
@@ -1002,14 +1017,26 @@ export default {
 .srv-row {
   margin-bottom: 8px;
 }
+.srv-row.is-disabled {
+  opacity: 0.55;
+}
 
-.srv-col-name { flex: 0 0 120px; }
-.srv-col-host { flex: 1; }
-.srv-col-port { flex: 0 0 80px; }
-.srv-col-admin { flex: 0 0 auto; }
-.srv-head-row .srv-col-admin,
-.srv-head-row .srv-col-op { text-align: center; }
-.srv-col-op { flex: 0 0 32px; }
+.srv-col-name { flex: 0 0 118px; }
+.srv-col-host { flex: 1; min-width: 0; }
+.srv-col-port { flex: 0 0 72px; }
+.srv-row .srv-col-state,
+.srv-row .srv-col-admin {
+  flex: 0 0 62px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.srv-head-row .srv-col-state,
+.srv-head-row .srv-col-admin {
+  flex: 0 0 62px;
+  text-align: center;
+}
+.srv-col-op { flex: 0 0 32px; text-align: center; }
 
 .server-editor-dialog .el-dialog__body {
   max-height: 55vh;
@@ -1272,5 +1299,47 @@ export default {
   backdrop-filter: blur(5px) !important;
   -webkit-backdrop-filter: blur(5px) !important;
   border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+</style>
+
+<style lang="scss">
+/* ===== 弹窗暗黑适配（非 scoped）=====
+   append-to-body 会把弹窗挂到 body 下、脱离 .login-container 作用域，
+   Element 的弹窗外框（背景/标题/关闭按钮）拿不到组件内的暗黑变量，需在此全局覆盖。
+   .dark-theme 由 index.html 内联脚本同步到 <html> 上。 */
+.admin-dialog.el-dialog,
+.server-editor-dialog.el-dialog {
+  border-radius: 12px;
+}
+
+html.dark-theme .admin-dialog.el-dialog,
+html.dark-theme .server-editor-dialog.el-dialog {
+  background: #232a34;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+html.dark-theme .admin-dialog .el-dialog__title,
+html.dark-theme .server-editor-dialog .el-dialog__title {
+  color: #e6edf3;
+}
+
+html.dark-theme .admin-dialog .el-dialog__headerbtn .el-dialog__close,
+html.dark-theme .server-editor-dialog .el-dialog__headerbtn .el-dialog__close {
+  color: #9aa7b4;
+}
+
+html.dark-theme .admin-dialog .admin-dialog-tip,
+html.dark-theme .server-editor-dialog .server-editor-tip {
+  color: #9aa7b4;
+}
+
+html.dark-theme .server-editor-dialog .srv-head-row {
+  color: #8a94a3;
+}
+
+html.dark-theme .admin-dialog .el-input__inner {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #e6edf3;
 }
 </style>

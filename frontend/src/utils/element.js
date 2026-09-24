@@ -21,7 +21,9 @@ import {
     Tabs,
     TabPane,
     Divider,
-    Tooltip
+    Tooltip,
+    Checkbox,
+    Switch
 } from 'element-ui'
 const element = {
     install: function (Vue) {
@@ -46,6 +48,8 @@ const element = {
         Vue.use(TabPane)
         Vue.use(Divider)
         Vue.use(Tooltip)
+        Vue.use(Checkbox)
+        Vue.use(Switch)
         Vue.prototype.$message = Message
     }
 }
