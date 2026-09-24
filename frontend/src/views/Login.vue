@@ -218,10 +218,24 @@
     >
       <div class="audit-body">
         <div class="audit-toolbar">
-          <el-select v-model="auditTarget" size="small" placeholder="选择服务器" class="audit-target" @change="onAuditTargetChange">
+          <!-- popper 不挂 body：在 el-drawer 内挂 body 的下拉会被抽屉层级/定位影响导致无法点选 -->
+          <el-select
+            v-model="auditTarget"
+            size="small"
+            placeholder="选择服务器"
+            class="audit-target"
+            :popper-append-to-body="false"
+            @change="onAuditTargetChange"
+          >
             <el-option v-for="s in quickServers" :key="s.name" :label="s.name" :value="s.name" />
           </el-select>
-          <el-select v-model="auditFile" size="small" placeholder="日志文件" class="audit-file">
+          <el-select
+            v-model="auditFile"
+            size="small"
+            placeholder="日志文件"
+            class="audit-file"
+            :popper-append-to-body="false"
+          >
             <el-option v-for="f in auditFiles" :key="f" :label="f" :value="f" />
           </el-select>
           <el-input
@@ -1567,5 +1581,24 @@ html.dark-theme .audit-drawer .el-input__inner {
 }
 html.dark-theme .audit-drawer .audit-tip {
   color: #9aa7b4;
+}
+</style>
+
+<style lang="scss">
+/* 审计抽屉内的下拉面板（popper 未挂 body，跟随抽屉渲染） */
+html.dark-theme .audit-drawer .el-select-dropdown {
+  background: #1b2130;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+html.dark-theme .audit-drawer .el-select-dropdown__item {
+  color: #d7e0ea;
+}
+html.dark-theme .audit-drawer .el-select-dropdown__item.hover,
+html.dark-theme .audit-drawer .el-select-dropdown__item:hover {
+  background: rgba(64, 158, 255, 0.15);
+}
+html.dark-theme .audit-drawer .el-select-dropdown__item.selected {
+  color: #66b1ff;
+  font-weight: 700;
 }
 </style>
