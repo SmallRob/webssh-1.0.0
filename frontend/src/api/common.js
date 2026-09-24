@@ -13,3 +13,14 @@ export function adminLogin(password) {
 export function adminLogout() {
     return request.post('/admin/logout')
 }
+
+// 快捷连接：公开列表 / 管理员读取全部 / 管理员保存（增删改）
+export function getQuickServers() {
+    return request.get('/servers')
+}
+export function getServerDetail() {
+    return request.get('/servers/detail')
+}
+export function saveQuickServers(servers) {
+    return request.post('/servers/save', servers)
+}

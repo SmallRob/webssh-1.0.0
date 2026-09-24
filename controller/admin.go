@@ -57,6 +57,12 @@ func ProtocolNeedsAdmin(p core.Protocol) bool {
 	return false
 }
 
+// IsAdmin 判断当前请求是否具备管理员权限（未启用门禁时视为管理员，
+// 与 /admin/status 的 isAdmin 语义保持一致）。
+func IsAdmin(c *gin.Context) bool {
+	return adminPass == "" || hasAdminCookie(c)
+}
+
 // signAdminToken 生成「过期时间.HMAC」格式的管理员令牌。
 func signAdminToken(expiry int64) string {
 	mac := hmac.New(sha256.New, adminSecret)

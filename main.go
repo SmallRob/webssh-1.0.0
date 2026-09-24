@@ -2,7 +2,6 @@ package main
 
 import (
 	"embed"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -154,36 +153,33 @@ func main() {
 		c.JSON(200, responseBody)
 	})
 	// 快捷服务器列表：每次请求实时读取配置文件，修改后无需重启容器。
-	// 安全：只向浏览器下发 name/host/port，凭据即使配置了也绝不下发，
-	// 用户必须手动输入用户名密码。
+	// 安全：只向浏览器下发 name/host/port/adminOnly，凭据即使误配也绝不下发；
+	// 非管理员请求过滤掉 adminOnly 条目（隐藏 IP 由前端只展示名称实现）。
 	server.GET("/servers", func(c *gin.Context) {
-		path := os.Getenv("SERVERS_FILE")
-		if path == "" {
-			path = "/webssh/servers.json"
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			c.JSON(200, []interface{}{})
+		c.JSON(200, controller.ListPublicServers(c))
+	})
+	// 快捷连接管理（仅管理员）：查看全部条目 / 保存（新增、修改、删除）
+	server.GET("/servers/detail", func(c *gin.Context) {
+		if !controller.RequireAdminAPI(c) {
 			return
 		}
-		var raw []map[string]interface{}
-		if err := json.Unmarshal(data, &raw); err != nil {
-			c.JSON(200, []interface{}{})
+		c.JSON(200, controller.ResponseBody{Msg: "success", Data: controller.DetailServers(c)})
+	})
+	server.POST("/servers/save", func(c *gin.Context) {
+		if !controller.RequireAdminAPI(c) {
 			return
 		}
-		safe := make([]map[string]interface{}, 0, len(raw))
-		for _, item := range raw {
-			port := item["port"]
-			if port == nil {
-				port = 22
-			}
-			safe = append(safe, map[string]interface{}{
-				"name": item["name"],
-				"host": item["host"],
-				"port": port,
-			})
+		responseBody := controller.ResponseBody{Msg: "success"}
+		defer controller.TimeCost(time.Now(), &responseBody)
+		var entries []controller.QuickServer
+		if err := c.ShouldBindJSON(&entries); err != nil {
+			c.JSON(200, controller.ResponseBody{Msg: "请求格式错误: " + err.Error()})
+			return
 		}
-		c.JSON(200, safe)
+		if err := controller.SaveServerList(entries); err != nil {
+			responseBody.Msg = "保存失败: " + err.Error()
+		}
+		c.JSON(200, responseBody)
 	})
 	file := server.Group("/file")
 	{

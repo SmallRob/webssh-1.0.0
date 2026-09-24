@@ -33,7 +33,7 @@ if ! docker-compose up -d; then
     -e "adminPass=${ADMIN_PASS:-}" \
     -e "rdpRequireAdmin=${RDP_REQUIRE_ADMIN:-true}" \
     -e "vncRequireAdmin=${VNC_REQUIRE_ADMIN:-false}" \
-    -v "$(pwd)/servers.json:/webssh/servers.json:ro" \
+    -v "$(pwd)/servers.json:/webssh/servers.json" \
     --network tcb-front-nginx-network \
     "${IMAGE}"
 fi

@@ -1,35 +1,46 @@
 <template>
   <div class="login-container" :class="{ 'dark-theme': isDarkTheme }">
+    <!-- 右上角：管理员模式（主题切换按钮左侧） -->
     <div class="theme-switch-wrapper">
+      <el-button
+        v-if="admin.enabled && !admin.isAdmin"
+        size="mini"
+        type="warning"
+        plain
+        icon="el-icon-lock"
+        class="admin-toggle"
+        @click="openAdminDialog('')"
+      >管理员</el-button>
+      <el-button
+        v-else-if="admin.enabled && admin.isAdmin"
+        size="mini"
+        type="success"
+        plain
+        icon="el-icon-unlock"
+        class="admin-toggle is-on"
+        @click="exitAdmin"
+      >管理员中</el-button>
       <div class="theme-switch" @click="toggleTheme">
         <i class="fas" :class="isDarkTheme ? 'fa-sun' : 'fa-moon'" style="margin-top: -30px;"></i>
       </div>
     </div>
-    <div class="card" style="margin: 20px auto;">
+    <div class="card" style="margin: 12px auto;">
       <div class="title">WebSSH Console</div>
       <el-form :model="sshInfo" label-position="top" class="form-grid">
-        <!-- 连接协议：SSH / RDP / VNC，切换后自动套用默认端口与字段可见性；
-             需要管理员模式且未解锁的协议显示锁标识 -->
+        <!-- 连接协议：SSH / RDP / VNC 扁平紧凑切换，受门禁保护的协议显示锁标识 -->
         <el-form-item label="连接协议 (Protocol)">
-          <div class="admin-bar" v-if="admin.enabled">
-            <span v-if="admin.isAdmin" class="admin-badge"><i class="fas fa-user-shield"></i> 管理员模式已开启</span>
-            <el-button v-else size="mini" type="warning" plain icon="el-icon-lock" @click="openAdminDialog('')">进入管理员模式</el-button>
-          </div>
           <div class="protocol-picker">
-            <div
+            <button
               v-for="p in protocols"
               :key="p.value"
-              class="protocol-item"
+              type="button"
+              class="protocol-pill"
               :class="{ 'is-active': sshInfo.protocol === p.value }"
               @click="onPickProtocol(p.value)"
             >
-              <div class="protocol-name">
-                {{ p.label }}
-                <i v-if="isProtocolLocked(p.value)" class="fas fa-lock protocol-lock"></i>
-              </div>
-              <div class="protocol-desc">{{ p.title }}</div>
-              <div class="protocol-port">默认端口 {{ p.defaultPort }}</div>
-            </div>
+              {{ p.label }}
+              <i v-if="isProtocolLocked(p.value)" class="fas fa-lock protocol-lock"></i>
+            </button>
           </div>
         </el-form-item>
                  <el-row :gutter="20">
@@ -113,6 +124,34 @@
         </el-row>
       </el-form>
     </div>
+    <!-- 快捷连接：仅显示名称（隐藏 IP），管理员可编辑（含「仅管理员可见」条目） -->
+    <div class="quick-servers" v-if="quickServers.length || admin.enabled">
+      <div class="qs-head">
+        <span class="qs-title">快捷连接 (Quick Connect)</span>
+        <el-button
+          v-if="admin.enabled && admin.isAdmin"
+          size="mini"
+          type="text"
+          icon="el-icon-setting"
+          class="qs-edit"
+          @click="openServerEditor"
+        >编辑</el-button>
+      </div>
+      <div class="qs-list" v-if="quickServers.length">
+        <button
+          v-for="s in quickServers"
+          :key="s.name"
+          type="button"
+          class="qs-btn"
+          :title="'连接 ' + s.name"
+          @click="fillFromQuick(s)"
+        >
+          <b>{{ s.name }}</b>
+          <span v-if="s.adminOnly" class="qs-admin-tag"><i class="fas fa-user-shield"></i> 仅管理员</span>
+        </button>
+      </div>
+      <div v-else class="qs-empty">暂无快捷连接</div>
+    </div>
     <!-- 管理员模式解锁弹窗：RDP/VNC 受门禁保护时先校验管理员密码 -->
     <el-dialog
       title="进入管理员模式"
@@ -135,6 +174,37 @@
         <el-button size="small" type="primary" :loading="adminLoading" @click="unlockAdmin">解锁</el-button>
       </div>
     </el-dialog>
+    <!-- 快捷连接编辑浮窗（仅管理员）：新增 / 修改 / 删除 / 标记仅管理员 -->
+    <el-dialog
+      title="编辑快捷连接"
+      :visible.sync="serverEditorVisible"
+      width="640px"
+      append-to-body
+      custom-class="server-editor-dialog"
+    >
+      <div class="server-editor-tip">
+        仅保存名称与地址端口，连接时用户手动输入凭据；勾选「仅管理员」后该条目对普通用户隐藏。
+      </div>
+      <div class="srv-head-row">
+        <span class="srv-col-name">名称</span>
+        <span class="srv-col-host">主机地址</span>
+        <span class="srv-col-port">端口</span>
+        <span class="srv-col-admin">仅管理员</span>
+        <span class="srv-col-op"></span>
+      </div>
+      <div v-for="(s, idx) in editableServers" :key="idx" class="srv-row">
+        <el-input v-model="s.name" size="small" placeholder="名称" class="srv-col-name" />
+        <el-input v-model="s.host" size="small" placeholder="IP / 域名" class="srv-col-host" />
+        <el-input v-model.number="s.port" size="small" placeholder="22" class="srv-col-port" />
+        <el-checkbox v-model="s.adminOnly" class="srv-col-admin" />
+        <el-button size="mini" type="text" icon="el-icon-delete" class="srv-col-op" @click="removeServer(idx)" />
+      </div>
+      <el-button size="small" plain icon="el-icon-plus" @click="addServer">新增条目</el-button>
+      <div slot="footer">
+        <el-button size="small" @click="serverEditorVisible = false">取消</el-button>
+        <el-button size="small" type="primary" :loading="serverSaving" @click="saveServers">保存</el-button>
+      </div>
+    </el-dialog>
     <div class="footer">
       <a href="https://github.com/eooce/webssh" target="_blank" rel="noopener noreferrer">WebSSH Console | Powered by eooce</a>
     </div>
@@ -143,7 +213,7 @@
 
 <script>
 import { PROTOCOLS, protocolSpec, PROTOCOL_ROUTES } from '@/utils/remote'
-import { getAdminStatus, adminLogin } from '@/api/common'
+import { getAdminStatus, adminLogin, adminLogout, getQuickServers, getServerDetail, saveQuickServers } from '@/api/common'
 
 const PROTOCOL_VALUES = PROTOCOLS.map(p => p.value)
 
@@ -176,7 +246,13 @@ export default {
       adminPassword: '',
       adminLoading: false,
       // 解锁后要继续的动作：'' 仅解锁 / 'connect' 继续连接 / 'ssh' 等协议值切换过去
-      pendingAfterUnlock: ''
+      pendingAfterUnlock: '',
+      // 快捷连接（/servers 实时下发，仅含名称；host 仅用于回填不展示）
+      quickServers: [],
+      // 快捷连接编辑浮窗
+      serverEditorVisible: false,
+      editableServers: [],
+      serverSaving: false
     }
   },
   computed: {
@@ -251,6 +327,7 @@ export default {
     }
 
     this.loadAdminStatus()
+    this.loadQuickServers()
 
     // 检查主题设置
     const savedTheme = localStorage.getItem('isDarkTheme')
@@ -305,6 +382,8 @@ export default {
           this.admin.isAdmin = true
           this.adminDialogVisible = false
           this.$message.success('管理员模式已开启')
+          // 重新拉取快捷连接：管理员可见 adminOnly 条目
+          this.loadQuickServers()
           const pending = this.pendingAfterUnlock
           this.pendingAfterUnlock = ''
           if (pending === 'connect') {
@@ -319,6 +398,79 @@ export default {
         this.$message.error('验证请求失败，请稍后重试')
       }).finally(() => {
         this.adminLoading = false
+      })
+    },
+    exitAdmin () {
+      adminLogout().then(() => {
+        this.admin.isAdmin = false
+        this.$message.success('已退出管理员模式')
+        this.loadQuickServers()
+      }).catch(() => {
+        this.$message.error('退出管理员模式失败')
+      })
+    },
+    // ---- 快捷连接 ----
+    loadQuickServers () {
+      getQuickServers().then(list => {
+        this.quickServers = Array.isArray(list) ? list : []
+      }).catch(() => { /* 加载失败静默，不影响主表单 */ })
+    },
+    // 点击快捷按钮：回填目标（IP 仅回填不展示），清空凭据并聚焦用户名
+    fillFromQuick (s) {
+      if (this.sshInfo.protocol !== 'ssh') {
+        this.selectProtocol('ssh')
+      }
+      this.sshInfo.hostname = s.host || ''
+      this.sshInfo.port = Number(s.port) || 22
+      this.sshInfo.username = ''
+      this.sshInfo.password = ''
+      this.generatedLink = ''
+      this.$message.success(`已载入 ${s.name}，请输入用户名密码连接`)
+      this.$nextTick(() => {
+        this.$refs.usernameInput && this.$refs.usernameInput.focus()
+      })
+    },
+    openServerEditor () {
+      getServerDetail().then(res => {
+        const list = (res && res.Data) || []
+        this.editableServers = list.map(s => ({
+          name: s.name || '',
+          host: s.host || '',
+          port: Number(s.port) || 22,
+          adminOnly: !!s.adminOnly
+        }))
+        this.serverEditorVisible = true
+      }).catch(err => {
+        this.$message.error((err && err.data && err.data.Msg) || '读取快捷连接配置失败')
+      })
+    },
+    addServer () {
+      this.editableServers.push({ name: '', host: '', port: 22, adminOnly: false })
+    },
+    removeServer (idx) {
+      this.editableServers.splice(idx, 1)
+    },
+    saveServers () {
+      const rows = this.editableServers.filter(s => (s.name || '').trim() || (s.host || '').trim())
+      for (const s of rows) {
+        if (!s.name.trim() || !s.host.trim()) {
+          this.$message.error('名称与主机地址都必须填写！')
+          return
+        }
+      }
+      this.serverSaving = true
+      saveQuickServers(rows).then(res => {
+        if (res && res.Msg === 'success') {
+          this.$message.success('快捷连接已保存')
+          this.serverEditorVisible = false
+          this.loadQuickServers()
+        } else {
+          this.$message.error((res && res.Msg) || '保存失败')
+        }
+      }).catch(() => {
+        this.$message.error('保存请求失败，请稍后重试')
+      }).finally(() => {
+        this.serverSaving = false
       })
     },
     // 点击协议卡片：受门禁保护的协议先解锁再切换
@@ -609,7 +761,7 @@ export default {
 }
 
 .login-container ::v-deep .el-form-item {
-  margin-bottom: 15px;
+  margin-bottom: 12px;
 }
 
 .login-container {
@@ -624,7 +776,7 @@ export default {
   background-repeat: no-repeat;
   background-attachment: fixed;
   position: relative;
-  padding-top: 5vh;
+  padding-top: 4vh;
   padding-bottom: 60px;
   transition: background-color 0.3s, color 0.3s, background-image 0.3s;
   overflow-y: auto;
@@ -636,8 +788,8 @@ export default {
   -webkit-backdrop-filter: blur(10px);
   box-shadow: var(--shadow);
   border-radius: 20px;
-  padding-top: 15px;
-  padding-bottom: 25px;
+  padding-top: 12px;
+  padding-bottom: 18px;
   width: 100%;
   max-width: 42rem;
   position: relative;
@@ -647,13 +799,13 @@ export default {
 
 .title {
   text-align: center;
-  font-size: 2.5rem;
+  font-size: 2rem;
   font-weight: 800;
   color: var(--title-color);
-  margin-bottom: 2.3rem;
+  margin-bottom: 1.4rem;
   letter-spacing: 1px;
   position: relative;
-  padding-bottom: 1rem;
+  padding-bottom: 0.8rem;
   font-family: none;
   transition: color 0.3s;
 }
@@ -687,34 +839,44 @@ export default {
   transition: all 0.3s;
 }
 
-/* ---- 协议选择器（SSH / RDP / VNC）---- */
+/* ---- 协议选择器（SSH / RDP / VNC）：扁平紧凑按钮 ---- */
 .protocol-picker {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  display: flex;
+  gap: 8px;
   width: 100%;
 }
 
-/* ---- 管理员模式 ---- */
-.admin-bar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 8px;
+.protocol-pill {
+  flex: 1;
+  cursor: pointer;
+  padding: 7px 0;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  background: transparent;
+  color: var(--text-color);
+  transition: all 0.2s;
+  user-select: none;
+  line-height: 1.4;
 }
 
-.admin-badge {
-  font-size: 12px;
-  color: #1adb6d;
-  background: rgba(26, 219, 109, 0.12);
-  border: 1px solid rgba(26, 219, 109, 0.35);
-  border-radius: 10px;
-  padding: 2px 10px;
+.protocol-pill:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.protocol-pill.is-active {
+  border-color: var(--primary);
+  background: rgba(64, 158, 255, 0.14);
+  color: var(--primary);
 }
 
 .protocol-lock {
   font-size: 11px;
   margin-left: 4px;
-  opacity: 0.75;
+  opacity: 0.8;
 }
 
 .admin-dialog-tip {
@@ -724,66 +886,134 @@ export default {
   line-height: 1.6;
 }
 
-.protocol-item {
+/* ---- 右上角管理员切换（主题按钮左侧） ---- */
+.theme-switch-wrapper {
+  position: absolute;
+  top: 25px;
+  right: 30px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-toggle {
+  border-radius: 8px;
+  font-weight: 600;
+}
+.admin-toggle.is-on {
   cursor: pointer;
-  border-radius: 12px;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  background: hsl(0deg 0% 100% / 6%);
-  backdrop-filter: blur(5px);
-  -webkit-backdrop-filter: blur(5px);
-  transition: all 0.25s;
+}
+
+/* ---- 快捷连接：仅展示名称（隐藏 IP） ---- */
+.quick-servers {
+  width: 100%;
+  max-width: 42rem;
+  margin: 12px auto 0;
+  padding: 0 4px;
+}
+
+.qs-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.qs-title {
+  font-size: 13px;
+  color: var(--text-color);
+  opacity: 0.65;
+}
+
+.qs-edit {
+  padding: 3px 6px;
+}
+
+.qs-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qs-btn {
+  cursor: pointer;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-color);
+  padding: 6px 14px;
+  font-size: 13px;
+  line-height: 1.4;
   text-align: center;
+  transition: all 0.2s;
   user-select: none;
 }
 
-.protocol-item:hover {
+.qs-btn:hover {
   border-color: var(--primary);
-}
-
-.protocol-item.is-active {
-  border-color: var(--primary);
-  background: rgba(64, 158, 255, 0.16);
-  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.22);
-}
-
-.protocol-name {
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  color: var(--text-color);
-}
-
-.protocol-desc {
-  font-size: 11.5px;
-  margin-top: 3px;
-  color: var(--text-color);
-  opacity: 0.7;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.protocol-port {
-  font-size: 11px;
-  margin-top: 2px;
   color: var(--primary);
-  opacity: 0.9;
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.25);
 }
 
-@media (max-width: 768px) {
-  .protocol-picker {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
-  }
+.qs-btn b {
+  display: block;
+  font-size: 14px;
+}
 
-  .protocol-desc {
-    display: none;
-  }
+.qs-admin-tag {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 10px;
+  padding: 0 6px;
+  border-radius: 6px;
+  color: #ffb454;
+  border: 1px solid rgba(255, 180, 84, 0.4);
+  background: rgba(255, 180, 84, 0.1);
+}
 
-  .protocol-name {
-    font-size: 15px;
-  }
+.qs-empty {
+  font-size: 12px;
+  color: var(--text-color);
+  opacity: 0.5;
+}
+
+/* ---- 快捷连接编辑浮窗 ---- */
+.server-editor-tip {
+  font-size: 12.5px;
+  color: #888;
+  margin-bottom: 10px;
+  line-height: 1.6;
+}
+
+.srv-head-row,
+.srv-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.srv-head-row {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 6px;
+}
+
+.srv-row {
+  margin-bottom: 8px;
+}
+
+.srv-col-name { flex: 0 0 120px; }
+.srv-col-host { flex: 1; }
+.srv-col-port { flex: 0 0 80px; }
+.srv-col-admin { flex: 0 0 auto; }
+.srv-head-row .srv-col-admin,
+.srv-head-row .srv-col-op { text-align: center; }
+.srv-col-op { flex: 0 0 32px; }
+
+.server-editor-dialog .el-dialog__body {
+  max-height: 55vh;
+  overflow-y: auto;
 }
 
 .login-container ::v-deep .el-form-item .el-upload.upload-key {
@@ -929,13 +1159,6 @@ export default {
 
 .footer a:hover {
   color: #05d899;
-}
-
-.theme-switch-wrapper {
-  position: absolute;
-  top: 25px;
-  right: 30px;
-  z-index: 10;
 }
 
 .theme-switch {
