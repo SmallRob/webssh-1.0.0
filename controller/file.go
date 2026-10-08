@@ -18,6 +18,7 @@ import (
 type File struct {
 	Name       string
 	Size       string
+	SizeBytes  int64
 	ModifyTime string
 	IsDir      bool
 }
@@ -228,7 +229,7 @@ func FileList(c *gin.Context) *ResponseBody {
 		} else {
 			fileSize = Bytefmt(uint64(mFile.Size()))
 		}
-		file := File{Name: mFile.Name(), IsDir: mFile.IsDir(), Size: fileSize, ModifyTime: mFile.ModTime().Format("2006-01-02 15:04:05")}
+		file := File{Name: mFile.Name(), IsDir: mFile.IsDir(), Size: fileSize, SizeBytes: mFile.Size(), ModifyTime: mFile.ModTime().Format("2006-01-02 15:04:05")}
 		fileList = append(fileList, file)
 	}
 	sort.Stable(fileList)

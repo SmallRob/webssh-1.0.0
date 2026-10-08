@@ -1,0 +1,8 @@
+# 控制构建上下文体积：镜像只需要 Go 源码与前端构建产物 public/
+.git
+.github
+frontend
+*.md
+*.sh
+docker-compose.yml
+servers.json
