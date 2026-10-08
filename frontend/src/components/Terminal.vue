@@ -8,12 +8,50 @@
         <FileList />
       </div>
     </div>
-    <div class="terminal-footer">
-      <a href="https://github.com/eooce/webssh" target="_blank" class="github-link" title="GitHub">
-        <i class="fab fa-github"></i>
-      </a>
-      <button @click="toggleSftpPanel" class="sftp-toggle-btn" title="文件管理">
-        <i class="fas fa-folder-open" style="margin-left: 15px;"></i>
+    <div class="terminal-footer status-bar">
+      <div class="status-items">
+        <span class="status-item status-host" :title="$t('statusHostname')">
+          <i class="fas fa-server"></i>
+          <span class="status-text">{{ metrics.hostname || '—' }}</span>
+        </span>
+        <span class="status-item" :title="$t('statusTime')">
+          <i class="far fa-clock"></i>
+          <span class="status-text">{{ metrics.time || '—' }}</span>
+        </span>
+        <span class="status-item" :title="$t('statusCpu')">
+          <i class="fas fa-microchip"></i>
+          <span class="status-label">CPU</span>
+          <span class="status-meter"><span class="status-meter-fill" :class="levelClass(metrics.cpuPercent)" :style="{ width: meterWidth(metrics.cpuPercent) }"></span></span>
+          <span :class="levelClass(metrics.cpuPercent)">{{ fmtPercent(metrics.cpuPercent) }}</span>
+        </span>
+        <span class="status-item" :title="memTitle">
+          <i class="fas fa-memory"></i>
+          <span class="status-label">{{ $t('statusMem') }}</span>
+          <span class="status-meter"><span class="status-meter-fill" :class="levelClass(metrics.mem.percent)" :style="{ width: meterWidth(metrics.mem.percent) }"></span></span>
+          <span :class="levelClass(metrics.mem.percent)">{{ fmtPercent(metrics.mem.percent) }}</span>
+          <span class="status-sub">{{ fmtKB(metrics.mem.usedKB) }} / {{ fmtKB(metrics.mem.totalKB) }}</span>
+        </span>
+        <span v-for="d in visibleDisks" :key="d.mount" class="status-item" :title="d.fs + ' → ' + d.mount">
+          <i class="fas fa-hdd"></i>
+          <span class="status-label">{{ $t('statusDisk') }} {{ d.mount }}</span>
+          <span class="status-meter"><span class="status-meter-fill" :class="levelClass(d.percent)" :style="{ width: meterWidth(d.percent) }"></span></span>
+          <span :class="levelClass(d.percent)">{{ fmtPercent(d.percent) }}</span>
+        </span>
+        <span class="status-item" :title="$t('statusLoad')">
+          <i class="fas fa-tachometer-alt"></i>
+          <span class="status-text">{{ loadText }}</span>
+        </span>
+        <span class="status-item" :title="$t('statusUptime')">
+          <i class="fas fa-hourglass-half"></i>
+          <span class="status-text">{{ metrics.uptime || '—' }}</span>
+        </span>
+        <span v-if="!metricsOk" class="status-item status-offline">
+          <i class="fas fa-plug"></i>
+          <span>{{ $t('statusOffline') }}</span>
+        </span>
+      </div>
+      <button @click="toggleSftpPanel" class="sftp-toggle-btn" :title="$t('toggleSFTP')">
+        <i class="fas fa-folder-open"></i>
       </button>
     </div>
   </div>
@@ -37,15 +75,101 @@ export default {
             ssh: null,
             savePass: false,
             fontSize: 15,
-            isSftpVisible: false
+            isSftpVisible: false,
+            // 服务器状态栏
+            metrics: {
+                hostname: '', time: '', uptime: '',
+                load1: '', load5: '', load15: '',
+                cpuPercent: -1,
+                mem: { totalKB: 0, usedKB: 0, percent: -1 },
+                disks: []
+            },
+            metricsOk: false
+        }
+    },
+    computed: {
+        visibleDisks() {
+            return (this.metrics.disks || []).slice(0, 2)
+        },
+        memTitle() {
+            return this.$t('statusMem') + ': ' + this.fmtKB(this.metrics.mem.usedKB) + ' / ' + this.fmtKB(this.metrics.mem.totalKB)
+        },
+        loadText() {
+            const m = this.metrics
+            if (!m.load1) return '—'
+            return `${m.load1} ${m.load5} ${m.load15}`
         }
     },
     mounted() {
         this.$nextTick(() => {
             this.createTerm()
+            this.connectMetrics()
         })
     },
     methods: {
+        // ---------- 服务器状态栏 ----------
+        connectMetrics() {
+            const sshReq = this.$store.getters.sshReq
+            if (!sshReq) return
+            const prefix = process.env.NODE_ENV === 'production' ? '' : '/api'
+            const proto = location.protocol === 'http:' ? 'ws' : 'wss'
+            const self = this
+            this._metricsRetry = (this._metricsRetry || 0)
+            this._metricsWs = new WebSocket(`${proto}://${location.host}${prefix}/server/metrics?sshInfo=${sshReq}`)
+            this._metricsWs.onmessage = (event) => {
+                self.metricsOk = true
+                self._metricsRetry = 0
+                try {
+                    const stats = JSON.parse(event.data)
+                    if (stats && stats.hostname !== undefined) {
+                        self.metrics = stats
+                    }
+                } catch (e) { /* 非 JSON 消息（错误提示等），忽略 */ }
+            }
+            this._metricsWs.onclose = () => {
+                self.metricsOk = false
+                // 断线退避重连（3s → 最大 30s），页面销毁后停止
+                if (self._destroyed) return
+                const delay = Math.min(30000, 3000 * (++self._metricsRetry))
+                self._metricsTimer = setTimeout(() => self.connectMetrics(), delay)
+            }
+            this._metricsWs.onerror = () => {
+                self.metricsOk = false
+            }
+        },
+        closeMetrics() {
+            this._destroyed = true
+            if (this._metricsTimer) {
+                clearTimeout(this._metricsTimer)
+                this._metricsTimer = null
+            }
+            if (this._metricsWs) {
+                this._metricsWs.onclose = null
+                this._metricsWs.close()
+                this._metricsWs = null
+            }
+        },
+        levelClass(v) {
+            if (v === null || v === undefined || v < 0) return ''
+            if (v < 60) return 'lv-ok'
+            if (v < 85) return 'lv-warn'
+            return 'lv-crit'
+        },
+        meterWidth(v) {
+            if (v === null || v === undefined || v < 0) return '0%'
+            return Math.min(100, Math.max(0, v)) + '%'
+        },
+        fmtPercent(v) {
+            if (v === null || v === undefined || v < 0) return '—'
+            return v.toFixed(0) + '%'
+        },
+        fmtKB(kb) {
+            if (!kb || kb <= 0) return '—'
+            const units = ['K', 'M', 'G', 'T']
+            let v = kb, i = 0
+            while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
+            return (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + units[i]
+        },
         toggleSftpPanel() {
             this.isSftpVisible = !this.isSftpVisible
         },
@@ -279,6 +403,7 @@ export default {
         }
     },
     beforeDestroy() {
+        this.closeMetrics()
         this.close()
     }
 }
@@ -326,39 +451,108 @@ export default {
 .terminal-footer {
   width: 100%;
   margin-left: -3rem;
-  text-align: center;
-  padding: 8px 0 6px 0;
-  font-size: 15px;
-  color: #0e0e0e;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--text-primary);
   background: var(--card-bg);
   border-top: 1px solid var(--input-border);
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
 }
 
-.github-link {
-  color: #0e0e0e;
-  margin-left: 4px;
-  font-size: 18px;
-  transition: color 0.2s;
+/* ---------- 服务器状态栏 ---------- */
+.status-bar {
+  font-family: 'DejaVu Sans Mono', 'SFMono-Regular', Consolas, monospace;
+  font-variant-numeric: tabular-nums;
 }
 
-.github-link:hover {
-  color: var(--text-primary);
+.status-items {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.status-item i {
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+.status-text {
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.status-label {
+  opacity: 0.75;
+}
+
+.status-sub {
+  opacity: 0.6;
+  font-size: 11px;
+}
+
+.status-meter {
+  width: 44px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.28);
+  overflow: hidden;
+}
+
+.status-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s ease, background-color 0.3s;
+}
+
+/* 阈值着色：<60 绿 / <85 黄 / >=85 红 */
+.lv-ok { color: #4caf50; }
+.lv-warn { color: #ff9800; }
+.lv-crit { color: #f44336; }
+
+.lv-ok .status-meter-fill,
+.status-meter-fill.lv-ok { background: #4caf50; }
+.status-meter-fill.lv-warn { background: #ff9800; }
+.status-meter-fill.lv-crit { background: #f44336; }
+
+.status-offline {
+  color: #f44336;
+  opacity: 0.9;
+}
+
+.status-host {
+  font-weight: 600;
 }
 
 .sftp-toggle-btn {
   display: none;
   background: none;
   border: none;
-  color: #0e0e0e;
-  font-size: 18px;
+  color: var(--text-primary);
+  font-size: 16px;
   cursor: pointer;
-  padding: 0;
+  padding: 0 2px;
   line-height: 1;
+  flex-shrink: 0;
 }
 
 .sftp-toggle-btn:hover {
@@ -368,6 +562,17 @@ export default {
 @media (max-width: 768px) {
   .sftp-toggle-btn {
     display: inline-block;
+  }
+
+  .status-text,
+  .status-sub,
+  .status-label {
+    max-width: 90px;
+  }
+
+  .status-items {
+    gap: 10px;
+    overflow-x: auto;
   }
 
   .terminal-page-container {

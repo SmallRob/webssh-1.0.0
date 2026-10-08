@@ -101,6 +101,11 @@ func main() {
 	server.GET("/term", func(c *gin.Context) {
 		controller.TermWs(c, time.Duration(timeout)*time.Minute)
 	})
+	// 服务器状态指标 WebSocket：周期采集时间/CPU/内存/磁盘/负载等，
+	// 供 SSH 页面底部状态栏展示（独立 SSH 连接，不影响终端会话）。
+	server.GET("/server/metrics", func(c *gin.Context) {
+		controller.MetricsWs(c)
+	})
 	// RDP / VNC 远程桌面通道：与 /term 采用相同的 sshInfo 描述符，
 	// 由 core 层的 RDCleanPath 代理 / RFB 中继接管。
 	//

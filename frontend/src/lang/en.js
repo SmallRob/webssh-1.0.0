@@ -128,6 +128,16 @@ export default {
     github: 'GitHub',
     toggleSFTP: 'Toggle SFTP',
 
+    // Server status bar
+    statusHostname: 'Hostname',
+    statusTime: 'Server time',
+    statusCpu: 'CPU usage',
+    statusMem: 'Memory usage',
+    statusDisk: 'Disk',
+    statusLoad: 'Load average (1/5/15 min)',
+    statusUptime: 'Uptime',
+    statusOffline: 'Collecting stats…',
+
     // Protocol / Remote desktop
     protocol: 'Protocol',
     sshTerminal: 'SSH Terminal',

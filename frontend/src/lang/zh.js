@@ -126,7 +126,17 @@ export default {
     // Terminal
     webSSHConsole: 'WebSSH Console',
     github: 'GitHub',
-    toggleSFTP: 'Toggle SFTP',
+    toggleSFTP: '切换文件管理',
+
+    // 服务器状态栏
+    statusHostname: '主机名',
+    statusTime: '服务器时间',
+    statusCpu: 'CPU 使用率',
+    statusMem: '内存使用率',
+    statusDisk: '磁盘',
+    statusLoad: '系统负载 (1/5/15 分钟)',
+    statusUptime: '运行时长',
+    statusOffline: '状态采集中…',
 
     // 协议 / 远程桌面
     protocol: '连接协议',
