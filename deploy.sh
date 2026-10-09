@@ -19,6 +19,35 @@ IMAGE="${IMAGE:-webssh:1.0.0}"
 CONTAINER="${CONTAINER:-webssh}"
 PORT="${PORT:-8888}"
 
+# ---- 持久配置防护（servers.json / presets.json）----
+# 背景：这两个文件是管理员在页面上配置的运行时数据（bind mount 进容器），
+# 曾被「全量 tar 上传解压」覆盖导致配置丢失。此处做三件事：
+#   1) 部署前带时间戳备份到 /data/_backup；
+#   2) 幂等预创建缺失文件（bind mount 源缺失时 docker 会自动建【目录】，
+#      导致容器内该路径变成目录且应用读写失败）；
+#   3) 部署后验证容器内挂载点仍是普通文件。
+CONF_FILES=(servers.json presets.json)
+BACKUP_DIR=/data/_backup
+mkdir -p "${BACKUP_DIR}"
+for f in "${CONF_FILES[@]}"; do
+  if [ -f "${f}" ]; then
+    cp -a "${f}" "${BACKUP_DIR}/${f}.$(date +%Y%m%d-%H%M%S).bak"
+    # 仅保留最近 10 份备份（ls 无匹配时返回非零，pipefail 下须 || true 兜底）
+    (ls -1t "${BACKUP_DIR}/${f}."*.bak 2>/dev/null || true) | tail -n +11 | xargs -r rm -f
+  fi
+  # JSON 合法性预检：损坏时尝试从最近备份恢复，仍失败则重置为空配置
+  if [ -f "${f}" ] && ! python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${f}" 2>/dev/null; then
+    latest="$(ls -1t "${BACKUP_DIR}/${f}.*.bak" 2>/dev/null | head -1 || true)"
+    if [ -n "${latest}" ] && python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${latest}" 2>/dev/null; then
+      echo "  [warn] ${f} JSON 损坏，已从 ${latest} 恢复"
+      cp -a "${latest}" "${f}"
+    else
+      echo "  [warn] ${f} 缺失/损坏且无可用备份，重置为空配置"
+      echo '[]' > "${f}"
+    fi
+  fi
+done
+
 echo "== 1/3 构建镜像 ${IMAGE} =="
 docker build -t "${IMAGE}" .
 
@@ -34,6 +63,7 @@ if ! docker-compose up -d; then
     -e "rdpRequireAdmin=${RDP_REQUIRE_ADMIN:-true}" \
     -e "vncRequireAdmin=${VNC_REQUIRE_ADMIN:-false}" \
     -v "$(pwd)/servers.json:/webssh/servers.json" \
+    -v "$(pwd)/presets.json:/webssh/presets.json" \
     --network tcb-front-nginx-network \
     "${IMAGE}"
 fi
@@ -49,3 +79,13 @@ done
 docker ps --filter "name=${CONTAINER}" --format '{{.Names}} | {{.Image}} | {{.Status}} | {{.Ports}}'
 curl -s -o /dev/null -w "  /check -> %{http_code}\n" "http://127.0.0.1:${PORT}/check"
 curl -s -o /dev/null -w "  /protocols -> %{http_code}\n" "http://127.0.0.1:${PORT}/protocols"
+
+# 持久配置挂载验证：容器内必须仍是普通文件（若被建成目录则立即告警）
+for f in "${CONF_FILES[@]}"; do
+  if docker exec "${CONTAINER}" sh -c "[ -f /webssh/${f} ]" 2>/dev/null; then
+    echo "  持久配置 ${f}: OK"
+  else
+    echo "  [error] 持久配置 ${f} 在容器内不是普通文件！请检查挂载"
+    exit 1
+  fi
+done

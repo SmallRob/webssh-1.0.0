@@ -41,5 +41,34 @@ export default {
     SET_LANGUAGE: (state, language) => {
         state.language = language
         localStorage.setItem('language', language)
+    },
+    // ---------- 传输队列 ----------
+    TRANSFER_ADD(state, item) {
+        state.transfer.items.push(Object.assign({
+            id: '',
+            name: '',
+            action: 'upload', // upload | download
+            size: 0,
+            source: '',
+            target: '',
+            percent: 0,
+            status: 'uploading', // uploading | downloading | success | error
+            error: ''
+        }, item))
+        state.transfer.visible = true
+    },
+    TRANSFER_PATCH(state, payload) {
+        const item = state.transfer.items.find(i => i.id === payload.id)
+        if (item) {
+            Object.assign(item, payload.patch)
+        }
+    },
+    TRANSFER_CLEAR(state) {
+        // 只清已完成/失败项，进行中的传输保留
+        const active = state.transfer.items.filter(i => i.status === 'uploading' || i.status === 'downloading')
+        state.transfer.items = active
+    },
+    TRANSFER_VISIBLE(state, visible) {
+        state.transfer.visible = visible
     }
 }

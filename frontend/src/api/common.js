@@ -29,3 +29,11 @@ export function saveQuickServers(servers) {
 export function getAuditFiles(sshInfo) {
     return request.get(`/audit/list?sshInfo=${sshInfo}`)
 }
+
+// 全局预制命令：读取对所有用户开放，编辑仅管理员
+export function listPresets() {
+    return request.get('/presets/list')
+}
+export function savePresets(list) {
+    return request.post('/presets/save', list)
+}

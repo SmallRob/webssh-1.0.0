@@ -119,13 +119,11 @@
             <div>{{ $t('dropToUpload') }}</div>
         </div>
 
-        <!-- 拖拽上传进度 -->
-        <div class="upload-queue" v-if="uploads.length > 0">
-            <div class="upload-queue-title">{{ $t('uploading') }}<i class="el-icon-close" @click="uploads = []"></i></div>
-            <div class="upload-item" v-for="u in uploads" :key="u.id">
-                <div class="upload-item-name" :title="u.name">{{ u.name }}</div>
-                <el-progress :percentage="u.percent" :status="u.status === 'error' ? 'exception' : (u.percent >= 100 ? 'success' : undefined)" :stroke-width="6"></el-progress>
-            </div>
+        <!-- 传输队列入口（全局队列，点击打开浮窗） -->
+        <div class="transfer-entry" v-if="transferCount > 0" @click="openTransferPanel">
+            <i class="el-icon-sort"></i>
+            <span>{{ $t('transferQueue') }}({{ transferActive }}/{{ transferCount }})</span>
+            <span v-if="transferFailed > 0" class="transfer-entry-badge">{{ transferFailed }}</span>
         </div>
 
         <!-- 右键菜单：文件行 -->
@@ -187,7 +185,7 @@
 
         <!-- 上传对话框（工具栏入口） -->
         <el-dialog custom-class="uploadContainer" :title="$t(this.titleTip)" :visible.sync="uploadVisible" append-to-body width="32%">
-            <el-upload ref="upload" multiple drag :action="uploadUrl" :data="uploadData" :before-upload="beforeUpload" :on-progress="uploadProgress" :on-success="uploadSuccess">
+            <el-upload ref="upload" multiple drag :action="uploadUrl" :data="uploadData" :before-upload="beforeUpload" :on-progress="uploadProgress" :on-success="uploadSuccess" :on-error="uploadError">
                 <i class="el-icon-upload"></i>
                 <div class="el-upload__text">{{ $t(this.selectTip) }}</div>
                 <div class="el-upload__tip" slot="tip">{{ this.uploadTip }}</div>
@@ -291,9 +289,11 @@ export default {
             // 拖拽上传
             dragOver: false,
             dragCounter: 0,
-            uploads: [],
             uploadQueue: [],
-            uploadingBusy: false
+            uploadingBusy: false,
+            // 下载串行队列
+            downloadQueue: [],
+            downloadingBusy: false
         }
     },
     mounted() {
@@ -320,6 +320,19 @@ export default {
                 sshInfo: this.$store.getters.sshReq,
                 path: this.currentPath
             }
+        },
+        // ---------- 传输队列统计 ----------
+        transferItems() {
+            return this.$store.state.transfer.items
+        },
+        transferCount() {
+            return this.transferItems.length
+        },
+        transferActive() {
+            return this.transferItems.filter(i => i.status === 'uploading' || i.status === 'downloading').length
+        },
+        transferFailed() {
+            return this.transferItems.filter(i => i.status === 'error').length
         },
         // 隐藏文件过滤 + 排序（目录永远在前）
         visibleFiles() {
@@ -545,17 +558,6 @@ export default {
                 this.handleFileCommand('download', f)
             }
         },
-        downloadFile(path) {
-            const prefix = process.env.NODE_ENV === 'production' ? `${location.origin}` : 'api'
-            const downloadUrl = `${prefix}/file/download?path=${encodeURIComponent(path)}&sshInfo=${this.$store.getters.sshReq}`
-            // 用隐藏锚点触发下载，避免 window.open 被弹窗拦截
-            const a = document.createElement('a')
-            a.href = downloadUrl
-            a.rel = 'noopener'
-            document.body.appendChild(a)
-            a.click()
-            document.body.removeChild(a)
-        },
 
         /* ---------- 排序 ---------- */
         sortIcon(key) {
@@ -608,24 +610,54 @@ export default {
             this.uploadTip = `${this.$t('uploading')} ${file.name} ${this.$t('to')} ${this.currentPath}, ${this.$t('notCloseWindows')}..`
             this.uploadData.id = file.uid
             const dirPath = file.webkitRelativePath;
-            this.uploadData.dir = dirPath ? dirPath.substring(0, dirPath.lastIndexOf('/')) : '';
+            const dir = dirPath ? dirPath.substring(0, dirPath.lastIndexOf('/')) : '';
+            this.uploadData.dir = dir;
+            // 登记到全局传输队列（进度由 uploadProgress / uploadSuccess / uploadError 更新）
+            this.addTransfer({
+                id: String(file.uid),
+                name: file.name,
+                action: 'upload',
+                size: file.size,
+                source: this.$t('localFile') + (dir ? '/' + dir : ''),
+                target: this.currentPath,
+                percent: 0,
+                status: 'uploading',
+                error: ''
+            })
             return true
         },
         uploadSuccess(r, file) {
             this.uploadTip = `${file.name}${this.$t('uploadFinish')}!`
+            this.patchTransfer(String(file.uid), { percent: 100, status: 'success' })
             this.getFileList();
+        },
+        uploadError(err, file) {
+            this.patchTransfer(String(file.uid), { status: 'error', error: this.$t('uploadFail') })
         },
         uploadProgress(e, f) {
             e.percent = e.percent / 2
             f.percentage = f.percentage / 2
+            this.patchTransfer(String(f.uid), { percent: Math.min(49, Math.floor(f.percentage || 0)) })
             if (e.percent === 50) {
                 const ws = new WebSocket(`${(location.protocol === 'http:' ? 'ws' : 'wss')}://${location.host}${process.env.NODE_ENV === 'production' ? '' : '/ws'}/file/progress?id=${f.uid}`)
                 ws.onmessage = e1 => {
                     f.percentage = (f.size + Number(e1.data)) / (f.size * 2) * 100
+                    this.patchTransfer(String(f.uid), { percent: Math.min(99, Math.floor(f.percentage || 0)) })
                 }
                 ws.onclose = () => { /* noop */ }
                 ws.onerror = () => { /* noop */ }
             }
+        },
+
+        /* ---------- 传输队列（Vuex 全局共享） ---------- */
+        addTransfer(item) {
+            this.$store.commit('TRANSFER_ADD', item)
+        },
+        patchTransfer(id, patch) {
+            this.$store.commit('TRANSFER_PATCH', { id, patch })
+        },
+        openTransferPanel() {
+            this.$store.commit('TRANSFER_VISIBLE', true)
         },
 
         /* ---------- 拖拽上传（独立于对话框，串行队列 + 双段进度） ---------- */
@@ -661,8 +693,18 @@ export default {
             const job = this.uploadQueue.shift()
             if (!job) return
             this.uploadingBusy = true
-            const item = { id: job.id, name: job.file.name, percent: 0, status: 'uploading' }
-            this.uploads.push(item)
+            const tid = job.id
+            this.addTransfer({
+                id: tid,
+                name: job.file.name,
+                action: 'upload',
+                size: job.file.size,
+                source: this.$t('localFile'),
+                target: this.currentPath,
+                percent: 0,
+                status: 'uploading',
+                error: ''
+            })
             const wsBase = `${(location.protocol === 'http:' ? 'ws' : 'wss')}://${location.host}${process.env.NODE_ENV === 'production' ? '' : '/ws'}/file/progress?id=${job.id}`
             let ws = null
             let wsOpened = false
@@ -673,11 +715,14 @@ export default {
             formData.append('dir', '')
             formData.append('file', job.file)
 
-            const finish = ok => {
+            const finish = (ok, errMsg) => {
                 try { if (ws) ws.close() } catch (err) { /* noop */ }
-                item.percent = 100
-                item.status = ok ? 'success' : 'error'
-                if (ok) this.getFileList()
+                if (ok) {
+                    this.patchTransfer(tid, { percent: 100, status: 'success' })
+                    this.getFileList()
+                } else {
+                    this.patchTransfer(tid, { status: 'error', error: errMsg || this.$t('uploadFail') })
+                }
                 this.uploadingBusy = false
                 this.processUploadQueue()
             }
@@ -687,14 +732,14 @@ export default {
             xhr.upload.onprogress = ev => {
                 if (!ev.lengthComputable) return
                 // 0~50%：浏览器 -> 服务端；到达 50% 后打开 WS 跟踪服务端 -> 远端主机
-                item.percent = Math.min(49, Math.floor(ev.loaded / ev.total * 50))
+                this.patchTransfer(tid, { percent: Math.min(49, Math.floor(ev.loaded / ev.total * 50)) })
                 if (!wsOpened && ev.loaded >= ev.total) {
                     wsOpened = true
                     try {
                         ws = new WebSocket(wsBase)
                         ws.onmessage = e1 => {
                             const written = Number(e1.data)
-                            item.percent = Math.min(99, Math.floor(50 + written / (job.file.size || 1) * 50))
+                            this.patchTransfer(tid, { percent: Math.min(99, Math.floor(50 + written / (job.file.size || 1) * 50)) })
                         }
                         ws.onclose = () => { /* noop */ }
                         ws.onerror = () => { /* noop */ }
@@ -711,13 +756,81 @@ export default {
                     if (!ok) msg = resp.Msg || msg
                 } catch (err) { /* noop */ }
                 if (!ok) this.$message.error(`${job.file.name}: ${msg}`)
-                finish(ok)
+                finish(ok, msg)
             }
             xhr.onerror = () => {
                 this.$message.error(this.$t('uploadFail'))
                 finish(false)
             }
             xhr.send(formData)
+        },
+
+        /* ---------- 下载（串行队列 + 实时进度，XHR blob） ---------- */
+        downloadFile(path, name, size) {
+            const fileName = name || (path.split('/').filter(Boolean).pop() || 'download')
+            const id = 'dl-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
+            this.addTransfer({
+                id,
+                name: fileName,
+                action: 'download',
+                size: size || 0,
+                source: path,
+                target: this.$t('localFile'),
+                percent: 0,
+                status: 'downloading',
+                error: ''
+            })
+            this.downloadQueue.push({ id, path, name: fileName })
+            this.processDownloadQueue()
+        },
+        processDownloadQueue() {
+            if (this.downloadingBusy) return
+            const job = this.downloadQueue.shift()
+            if (!job) return
+            this.downloadingBusy = true
+            const prefix = process.env.NODE_ENV === 'production' ? `${location.origin}` : 'api'
+            const url = `${prefix}/file/download?path=${encodeURIComponent(job.path)}&sshInfo=${this.$store.getters.sshReq}`
+            const finish = (ok, errMsg) => {
+                if (ok) {
+                    this.patchTransfer(job.id, { percent: 100, status: 'success' })
+                } else {
+                    this.patchTransfer(job.id, { status: 'error', error: errMsg || this.$t('downloadFail') })
+                    this.$message.error(`${job.name}: ${errMsg || this.$t('downloadFail')}`)
+                }
+                this.downloadingBusy = false
+                this.processDownloadQueue()
+            }
+            const xhr = new XMLHttpRequest()
+            xhr.open('GET', url, true)
+            xhr.responseType = 'blob'
+            xhr.onprogress = ev => {
+                if (!ev.lengthComputable) return
+                this.patchTransfer(job.id, {
+                    percent: Math.min(99, Math.floor(ev.loaded / ev.total * 100)),
+                    size: ev.total
+                })
+            }
+            xhr.onload = () => {
+                if (xhr.status !== 200) {
+                    let msg = String(xhr.status)
+                    try { msg = JSON.parse(xhr.responseText).Msg || msg } catch (e) { /* noop */ }
+                    finish(false, msg)
+                    return
+                }
+                const blob = xhr.response
+                this.patchTransfer(job.id, { size: blob.size })
+                const a = document.createElement('a')
+                a.href = URL.createObjectURL(blob)
+                a.download = job.name
+                a.rel = 'noopener'
+                document.body.appendChild(a)
+                a.click()
+                document.body.removeChild(a)
+                setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+                finish(true)
+            }
+            xhr.onerror = () => finish(false)
+            xhr.send()
         },
 
         /* ---------- 新建 / 重命名 / 删除 ---------- */
@@ -819,9 +932,7 @@ export default {
             if (dirs > 0) {
                 this.$message.info(this.$t('batchDownloadSkipDirs'))
             }
-            files.forEach((f, i) => {
-                setTimeout(() => this.downloadFile(this.joinPath(f.Name)), i * 300)
-            })
+            files.forEach(f => this.downloadFile(this.joinPath(f.Name), f.Name, f.SizeBytes))
         },
         batchDelete() {
             const rows = this.selectedRows()
@@ -900,7 +1011,7 @@ export default {
                     this.editorVisible = true
                     break
                 case 'download':
-                    this.downloadFile(path)
+                    this.downloadFile(path, row && row.Name, row && row.SizeBytes)
                     break
                 case 'rename':
                     this.renamingRow = row
@@ -1327,49 +1438,35 @@ export default {
         }
     }
 
-    .upload-queue {
+    .transfer-entry {
         flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--text-color);
+        background: var(--input-bg);
         border: 1px solid var(--input-border);
         border-radius: 4px;
-        padding: 6px 8px;
-        margin-top: 6px;
-        max-height: 140px;
-        overflow-y: auto;
+        cursor: pointer;
 
-        .upload-queue-title {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            font-size: 12px;
-            font-weight: bold;
-            color: var(--text-color);
-            margin-bottom: 4px;
-
-            i {
-                cursor: pointer;
-                opacity: 0.6;
-
-                &:hover {
-                    opacity: 1;
-                }
-            }
+        &:hover {
+            color: #409eff;
+            border-color: #409eff;
         }
 
-        .upload-item {
-            margin-bottom: 4px;
-
-            &:last-child {
-                margin-bottom: 0;
-            }
-
-            .upload-item-name {
-                font-size: 11px;
-                color: var(--text-color);
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                margin-bottom: 2px;
-            }
+        .transfer-entry-badge {
+            min-width: 16px;
+            height: 16px;
+            line-height: 16px;
+            padding: 0 4px;
+            border-radius: 8px;
+            background: #f56c6c;
+            color: #fff;
+            font-size: 11px;
+            text-align: center;
         }
     }
 }

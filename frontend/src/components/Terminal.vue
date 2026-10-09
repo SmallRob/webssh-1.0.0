@@ -50,10 +50,16 @@
           <span>{{ $t('statusOffline') }}</span>
         </span>
       </div>
+      <button @click="openPresets" class="preset-btn" :title="$t('presetCommands')">
+        <i class="fas fa-terminal"></i>
+        <span class="preset-btn-text">{{ $t('presetCommands') }}</span>
+      </button>
       <button @click="toggleSftpPanel" class="sftp-toggle-btn" :title="$t('toggleSFTP')">
         <i class="fas fa-folder-open"></i>
       </button>
     </div>
+    <TransferPanel />
+    <PresetCommands ref="presets" @run="execPreset" />
   </div>
 </template>
 
@@ -63,10 +69,12 @@ import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import { AttachAddon } from 'xterm-addon-attach'
 import FileList from '@/components/FileList'
+import TransferPanel from '@/components/TransferPanel'
+import PresetCommands from '@/components/PresetCommands'
 
 export default {
     name: 'Terminal',
-    components: { FileList },
+    components: { FileList, TransferPanel, PresetCommands },
     data() {
         return {
             term: null,
@@ -107,6 +115,18 @@ export default {
         })
     },
     methods: {
+        // ---------- 预制命令 ----------
+        openPresets() {
+            this.$refs.presets.open()
+        },
+        execPreset(cmd) {
+            if (this.ws && this.ws.readyState === 1) {
+                this.ws.send(cmd + '\r')
+                this.$message.success(this.$t('presetExecuted'))
+            } else {
+                this.$message.error(this.$t('wsClose'))
+            }
+        },
         // ---------- 服务器状态栏 ----------
         connectMetrics() {
             const sshReq = this.$store.getters.sshReq
@@ -543,6 +563,30 @@ export default {
   font-weight: 600;
 }
 
+.preset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 6px;
+  line-height: 1;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.preset-btn:hover {
+  opacity: 1;
+  color: #409eff;
+}
+
+.preset-btn i {
+  font-size: 12px;
+}
+
 .sftp-toggle-btn {
   display: none;
   background: none;
@@ -562,6 +606,10 @@ export default {
 @media (max-width: 768px) {
   .sftp-toggle-btn {
     display: inline-block;
+  }
+
+  .preset-btn-text {
+    display: none;
   }
 
   .status-text,

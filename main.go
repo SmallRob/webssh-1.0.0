@@ -163,6 +163,17 @@ func main() {
 	server.GET("/servers", func(c *gin.Context) {
 		c.JSON(200, controller.ListPublicServers(c))
 	})
+	// 全局预制命令：所有 SSH 终端可用。读取对所有用户开放，
+	// 编辑仅管理员（RequireAdminAPI 把关）；配置持久化于 presets.json。
+	server.GET("/presets/list", func(c *gin.Context) {
+		c.JSON(200, controller.ListPresets(c))
+	})
+	server.POST("/presets/save", func(c *gin.Context) {
+		if !controller.RequireAdminAPI(c) {
+			return
+		}
+		c.JSON(200, controller.SavePresets(c))
+	})
 	// 快捷连接管理（仅管理员）：查看全部条目 / 保存（新增、修改、删除）
 	server.GET("/servers/detail", func(c *gin.Context) {
 		if !controller.RequireAdminAPI(c) {
