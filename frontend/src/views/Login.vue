@@ -129,7 +129,7 @@
       <div class="qs-head">
         <span class="qs-title">快捷连接 (Quick Connect)</span>
         <div class="qs-actions" v-if="admin.enabled && admin.isAdmin">
-          <el-button size="mini" type="text" icon="el-icon-document-checked" class="qs-edit" @click="openAudit">审计</el-button>
+          <el-button size="mini" type="text" icon="el-icon-document-checked" class="qs-edit" @click="openAudit()">审计</el-button>
           <el-button size="mini" type="text" icon="el-icon-setting" class="qs-edit" @click="openServerEditor">编辑</el-button>
         </div>
       </div>
@@ -227,7 +227,7 @@
             :popper-append-to-body="false"
             @change="onAuditTargetChange"
           >
-            <el-option v-for="s in quickServers" :key="s.name" :label="s.name" :value="s.name" />
+            <el-option v-for="s in auditServers" :key="s.name" :label="s.name" :value="s.name" />
           </el-select>
           <el-select
             v-model="auditFile"
@@ -309,6 +309,8 @@ export default {
       auditTarget: '',
       auditFile: '',
       auditFiles: [],
+      // 审计目标服务器列表（管理员接口全量，含 adminOnly；与页面卡片列表区分）
+      auditServers: [],
       auditPassword: '',
       auditConnecting: false,
       auditDir: '/data/audit',
@@ -551,7 +553,8 @@ export default {
     // ---- 审计日志侧边栏 ----
     // SSH 认证信息按需构建：密码来自管理员输入（仅内存），未填则交给后端密钥
     buildAuditSshInfo () {
-      const target = this.quickServers.find(s => s.name === this.auditTarget) || {}
+      const target = this.auditServers.find(s => s.name === this.auditTarget) ||
+        this.quickServers.find(s => s.name === this.auditTarget) || {}
       return b64EncodeUtf8(JSON.stringify({
         protocol: 'ssh',
         hostname: target.host || '',
@@ -561,17 +564,39 @@ export default {
         password: this.auditPassword || ''
       }))
     },
-    openAudit () {
+    // 审计目标列表：用管理员接口拉全量（含「仅管理员可见」服务器），
+    // 失败时回退到页面卡片列表。审计本身是管理员功能，公开接口会过滤 adminOnly。
+    async loadAuditServers () {
+      try {
+        const res = await getServerDetail()
+        const list = (res && res.Msg === 'success' && Array.isArray(res.Data)) ? res.Data : []
+        this.auditServers = list.filter(s => !s.disabled)
+      } catch (e) {
+        this.auditServers = this.quickServers.filter(s => !s.disabled)
+      }
+    },
+    async openAudit (preselect) {
       this.auditVisible = true
-      this.$nextTick(() => {
-        this.initAuditTerm()
-        if (!this.auditTarget && this.quickServers.length) {
-          this.auditTarget = this.quickServers[0].name
+      this.$nextTick(() => { this.initAuditTerm() })
+      await this.loadAuditServers()
+      // 预选：优先指定服务器，否则第一台；已选服务器仍存在则保留
+      const names = this.auditServers.map(s => s.name)
+      if (!this.auditTarget || names.indexOf(this.auditTarget) === -1) {
+        if (preselect && names.indexOf(preselect) !== -1) {
+          this.auditTarget = preselect
+        } else {
+          this.auditTarget = names.length ? names[0] : ''
         }
-        // 打开即自动加载：拉取文件列表 → 默认选中最新日志 → 直接开始输出，
-        // 无需手动选文件再点「查看」；失败时在终端区提示下一步操作。
-        this.attemptAutoAudit()
-      })
+      }
+      if (!this.auditServers.length) {
+        if (this.auditTerm) {
+          this.auditTerm.clear()
+          this.auditTerm.writeln('\x1b[31m未获取到服务器列表，请先在「编辑」中添加快捷服务器。\x1b[0m')
+        }
+        return
+      }
+      // 打开即自动：选中的服务器 → 拉文件列表 → 默认最新文件 → 直接输出
+      this.attemptAutoAudit()
     },
     initAuditTerm () {
       const el = this.$refs.auditTerm
@@ -623,7 +648,7 @@ export default {
     async attemptAutoAudit () {
       if (this.auditConnecting) return
       if (!this.auditTarget) {
-        if (this.auditTerm) this.auditTerm.writeln('\x1b[31m快捷连接列表为空，请先在页面添加服务器。\x1b[0m')
+        if (this.auditTerm) this.auditTerm.writeln('\x1b[31m未获取到服务器列表，请先在「编辑」中添加快捷服务器。\x1b[0m')
         return
       }
       const ok = await this.loadAuditFiles(true)
