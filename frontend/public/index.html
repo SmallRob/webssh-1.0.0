@@ -12,6 +12,23 @@
     <meta name="description" content="最好用的webSSH终端管理工具">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="icon" href="/static/img/favicon.ico">
+    <!-- 版本号：每次重大更新递增，用于强制清除浏览器缓存 -->
+    <script>
+      (function(){
+        var VER = '20261009-v3';
+        if (localStorage.getItem('webssh_ver') !== VER) {
+          // 版本变更：清除所有缓存并标记新版本
+          try {
+            if ('caches' in window) caches.keys().then(function(k){k.forEach(function(n){caches.delete(n);})});
+            localStorage.setItem('webssh_ver', VER);
+          } catch(e){}
+          // 强制刷新以加载全新资源
+          if (performance.navigation.type !== 1) {
+            location.reload(true);
+          }
+        }
+      })();
+    </script>
   </head>
   <body>
     <noscript>
