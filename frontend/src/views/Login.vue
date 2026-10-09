@@ -235,6 +235,7 @@
             placeholder="日志文件"
             class="audit-file"
             :popper-append-to-body="false"
+            @change="connectAudit"
           >
             <el-option v-for="f in auditFiles" :key="f" :label="f" :value="f" />
           </el-select>
@@ -245,7 +246,7 @@
             placeholder="root 密码（已配置密钥可留空）"
             show-password
             class="audit-pass"
-            @keyup.enter.native="connectAudit"
+            @keyup.enter.native="attemptAutoAudit"
           />
           <el-button size="small" type="primary" :loading="auditConnecting" @click="connectAudit">查看</el-button>
         </div>
@@ -567,6 +568,9 @@ export default {
         if (!this.auditTarget && this.quickServers.length) {
           this.auditTarget = this.quickServers[0].name
         }
+        // 打开即自动加载：拉取文件列表 → 默认选中最新日志 → 直接开始输出，
+        // 无需手动选文件再点「查看」；失败时在终端区提示下一步操作。
+        this.attemptAutoAudit()
       })
     },
     initAuditTerm () {
@@ -584,7 +588,7 @@ export default {
       term.loadAddon(fit)
       term.open(el)
       try { fit.fit() } catch (e) { /* 容器未就绪时忽略 */ }
-      term.writeln('\x1b[33m选择服务器与日志文件后点击「查看」。\x1b[0m')
+      term.writeln('\x1b[33m正在加载审计日志…\x1b[0m')
       this.auditTerm = term
       this.auditFit = fit
       this.auditResizeHandler = () => { try { fit.fit() } catch (e) { /* ignore */ } }
@@ -613,6 +617,32 @@ export default {
         this.auditWs = null
       }
     },
+    // 自动查看流程：静默拉取文件列表（后端 ls -1t 已按修改时间倒序，首个即最新）
+    // → 默认选中最新文件 → 直接开始实时输出。
+    // 认证不可用（如未输密码且未配密钥）时只在终端区提示，不弹窗打断。
+    async attemptAutoAudit () {
+      if (this.auditConnecting) return
+      if (!this.auditTarget) {
+        if (this.auditTerm) this.auditTerm.writeln('\x1b[31m快捷连接列表为空，请先在页面添加服务器。\x1b[0m')
+        return
+      }
+      const ok = await this.loadAuditFiles(true)
+      if (!ok) {
+        if (this.auditTerm) {
+          this.auditTerm.clear()
+          this.auditTerm.writeln('\x1b[33m无法读取日志列表：请确认已解锁管理员模式，并在右侧输入 root 密码后回车（或先配置 AUDIT_SSH_KEY 免密）。\x1b[0m')
+        }
+        return
+      }
+      if (!this.auditFile) {
+        if (this.auditTerm) {
+          this.auditTerm.clear()
+          this.auditTerm.writeln('\x1b[33m审计目录下暂无日志文件。\x1b[0m')
+        }
+        return
+      }
+      await this.connectAudit()
+    },
     async connectAudit () {
       if (this.auditConnecting) return
       if (!this.auditTarget) {
@@ -626,14 +656,16 @@ export default {
       this.auditConnecting = true
       try {
         if (!this.auditFiles.length) {
-          await this.loadAuditFiles()
+          await this.loadAuditFiles(true)
         }
         if (!this.auditFile) {
+          if (this.auditTerm) this.auditTerm.writeln('\x1b[33m审计目录下暂无日志文件。\x1b[0m')
           return
         }
         this.closeAuditWs()
         if (!this.auditTerm) this.initAuditTerm()
         this.auditTerm.clear()
+        this.auditTerm.writeln(`\x1b[32m● 实时输出: ${this.auditFile}（最新）\x1b[0m`)
         const ws = new WebSocket(wsUrl('/audit/tail', {
           sshInfo: this.buildAuditSshInfo(),
           file: this.auditFile
@@ -656,9 +688,11 @@ export default {
     onAuditTargetChange () {
       this.auditFile = ''
       this.auditFiles = []
-      this.loadAuditFiles()
+      // 切换服务器后自动加载最新日志，保持「零手动操作」体验
+      this.attemptAutoAudit()
     },
-    async loadAuditFiles () {
+    // 静默模式（quiet）：状态/错误写入终端区而非弹窗；返回是否成功拿到文件列表
+    async loadAuditFiles (quiet) {
       if (!this.auditTarget) {
         this.$message.error('请选择服务器！')
         return
@@ -668,16 +702,21 @@ export default {
         const files = (res && res.Data) || []
         this.auditFiles = files
         if (res && res.Msg !== 'success') {
-          this.$message.error(res.Msg)
-        } else if (!files.length) {
-          this.$message.warning('审计目录下没有日志文件')
-        } else {
-          if (!this.auditFile || files.indexOf(this.auditFile) === -1) {
-            this.auditFile = files[0]
-          }
+          if (!quiet) this.$message.error(res.Msg)
+          return false
         }
+        if (!files.length) {
+          if (!quiet) this.$message.warning('审计目录下没有日志文件')
+          return true
+        }
+        // 后端 ls -1t 已按修改时间倒序：默认选最新；保留已选中且仍存在的文件
+        if (!this.auditFile || files.indexOf(this.auditFile) === -1) {
+          this.auditFile = files[0]
+        }
+        return true
       } catch (err) {
-        this.$message.error((err && err.data && err.data.Msg) || '读取文件列表失败')
+        if (!quiet) this.$message.error((err && err.data && err.data.Msg) || '读取文件列表失败')
+        return false
       }
     },
     // 点击协议卡片：受门禁保护的协议先解锁再切换
