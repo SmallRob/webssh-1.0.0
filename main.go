@@ -243,6 +243,8 @@ func main() {
 
 	// --- Static Files & SPA Frontend ---
 	// Serve static files from the 'static' directory
+	// 注意：JS/CSS 文件名已带 content-hash（如 app-d0ae3f07.js），
+	// 内容变更时 URL 自动变化，因此可安全长期缓存。
 	staticFS, _ := fs.Sub(f, "public/static")
 	server.StaticFS("/static", http.FS(staticFS))
 	
@@ -280,5 +282,9 @@ func serveIndex(c *gin.Context) {
 		c.String(http.StatusInternalServerError, "index.html not found")
 		return
 	}
+	// 禁止缓存 HTML，确保部署后用户立即看到新版本
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 }
