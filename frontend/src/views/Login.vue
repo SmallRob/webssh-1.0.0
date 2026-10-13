@@ -74,6 +74,29 @@
              </el-form-item>
            </el-col>
          </el-row>
+         <!-- RDP 网关转发：通过公网网关访问内网 RDP，避免直接暴露 3389 端口 -->
+         <el-row v-if="sshInfo.protocol === 'rdp'" :gutter="20">
+           <el-col :span="24">
+             <div class="gateway-toggle" @click="useRdpGateway = !useRdpGateway">
+               <el-checkbox :value="useRdpGateway" @change="useRdpGateway = !useRdpGateway" @click.native.stop>
+                 使用 RDP 网关转发
+               </el-checkbox>
+               <span class="gateway-hint">通过公网 443 端口转发到内网 RDP 服务</span>
+             </div>
+           </el-col>
+         </el-row>
+         <el-row v-if="sshInfo.protocol === 'rdp' && useRdpGateway" :gutter="20">
+           <el-col :span="14">
+             <el-form-item label="网关地址 (Gateway Host)">
+               <el-input v-model="sshInfo.rdpGateway" placeholder="如 rdp.leansoftx.com" />
+             </el-form-item>
+           </el-col>
+           <el-col :span="10">
+             <el-form-item label="网关端口 (Gateway Port)">
+               <el-input v-model.number="sshInfo.rdpGatewayPort" placeholder="默认 443" />
+             </el-form-item>
+           </el-col>
+         </el-row>
                  <el-row v-if="currentProtocol.needPrivateKey" :gutter="20">
            <el-col :xs="24" :sm="12">
              <el-form-item label="私钥 (Private Key)">
@@ -281,8 +304,13 @@ export default {
         domain: '',
         privateKey: '',
         passphrase: '',
-        command: ''
+        command: '',
+        // RDP 网关转发（可选）
+        rdpGateway: '',
+        rdpGatewayPort: ''
       },
+      // RDP 网关开关（UI 控制，不传给后端）
+      useRdpGateway: false,
       privateKeyFileName: '',
       generatedLink: '',
       isDarkTheme: false,
@@ -371,7 +399,13 @@ export default {
         domain: info.domain || '',
         privateKey: info.privateKey || '',
         passphrase: info.passphrase || '',
-        command: info.command || ''
+        command: info.command || '',
+        rdpGateway: info.rdpGateway || '',
+        rdpGatewayPort: info.rdpGatewayPort || ''
+      }
+      // 恢复 RDP 网关开关状态
+      if (info.rdpGateway && info.rdpGatewayPort) {
+        this.useRdpGateway = true
       }
       // 如果有私钥，恢复文件名显示
       if (info.privateKey) {
@@ -778,6 +812,12 @@ export default {
       if (!next.needUsername) {
         this.sshInfo.username = ''
       }
+      // 切离 RDP 时重置网关相关状态
+      if (value !== 'rdp') {
+        this.useRdpGateway = false
+        this.sshInfo.rdpGateway = ''
+        this.sshInfo.rdpGatewayPort = ''
+      }
       this.generatedLink = ''
     },
     // 按协议校验必填项，返回 true 表示通过
@@ -816,7 +856,7 @@ export default {
       return true
     },
     buildConnectionInfo () {
-      return {
+      const info = {
         protocol: this.sshInfo.protocol,
         hostname: this.sshInfo.hostname,
         port: this.sshInfo.port || this.currentProtocol.defaultPort,
@@ -827,6 +867,12 @@ export default {
         passphrase: this.sshInfo.passphrase || '',
         command: this.sshInfo.command || ''
       }
+      // RDP 网关字段：仅在 RDP 模式且启用时携带
+      if (this.sshInfo.protocol === 'rdp' && this.useRdpGateway) {
+        info.rdpGateway = this.sshInfo.rdpGateway || ''
+        info.rdpGatewayPort = Number(this.sshInfo.rdpGatewayPort) || 443
+      }
+      return info
     },
     onConnect () {
       // 管理员门禁：受保护的远程桌面协议需先解锁
@@ -1148,6 +1194,28 @@ export default {
   font-size: 11px;
   margin-left: 4px;
   opacity: 0.8;
+}
+
+/* ---- RDP 网关转发 ---- */
+.gateway-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin: 4px 0 8px;
+  border-radius: 8px;
+  background: rgba(64, 158, 255, 0.06);
+  border: 1px dashed rgba(64, 158, 255, 0.3);
+  cursor: pointer;
+  transition: all 0.2s;
+  &:hover {
+    background: rgba(64, 158, 255, 0.1);
+    border-color: rgba(64, 158, 255, 0.5);
+  }
+}
+.gateway-hint {
+  font-size: 12px;
+  color: #909399;
 }
 
 .admin-dialog-tip {

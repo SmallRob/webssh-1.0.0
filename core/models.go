@@ -68,6 +68,12 @@ type SSHClient struct {
 	Protocol string `json:"protocol"`
 	// Domain 仅 RDP 使用，对应 Windows 域 / 工作组。
 	Domain string `json:"domain"`
+	// RDPGateway / RDPGatewayPort：RDP 网关转发（可选）。
+	// 当配置时，RDP 连接不直连目标主机:3389，而是通过网关中转：
+	//   WebSSH → gateway:gatewayPort → (网关内部转发) → 目标主机:3389
+	// 典型场景：内网 RDP 不对外暴露，通过 rdp.leansoftx.com:443 转发。
+	RDPGateway     string `json:"rdpGateway,omitempty"`
+	RDPGatewayPort int    `json:"rdpGatewayPort,omitempty"`
 	Client    *ssh.Client
 	Sftp      *sftp.Client
 	StdinPipe io.WriteCloser
@@ -104,6 +110,22 @@ func (sclient *SSHClient) Normalize() {
 // Addr 返回 host:port 形式的连接地址。
 func (sclient *SSHClient) Addr() string {
 	return fmt.Sprintf("%s:%d", sclient.Hostname, sclient.Port)
+}
+
+// RDPAddr 返回 RDP 实际要连接的地址。
+// 当配置了 RDPGateway 时返回网关地址（由网关内部转发到真实目标），
+// 否则直连目标主机。RDP 协议的 destination 仍填原始目标，
+// 让 ironrdp-wasm 知道它真正要连接的是哪台机器。
+func (sclient *SSHClient) RDPAddr() string {
+	if sclient.RDPGateway != "" && sclient.RDPGatewayPort > 0 {
+		return fmt.Sprintf("%s:%d", sclient.RDPGateway, sclient.RDPGatewayPort)
+	}
+	return sclient.Addr()
+}
+
+// UseRDPGateway 判断是否配置了 RDP 网关。
+func (sclient *SSHClient) UseRDPGateway() bool {
+	return sclient.RDPGateway != "" && sclient.RDPGatewayPort > 0
 }
 
 // Close all closable fields of SSHClient that is opened:

@@ -80,12 +80,22 @@ func (sclient *SSHClient) ServeRDP(ws *websocket.Conn) error {
 // rdpHandshake 完成 RDCleanPath 代理侧的网络握手：
 // TCP 连接 → 发送 X.224 Connection Request → 读取 Connection Confirm →
 // 在裸 TCP 上完成 TLS 握手 → 提取服务器证书链。
+//
+// 当配置了 RDPGateway 时，TCP 连接目标是网关（由网关内部转发到真实 RDP 主机），
+// 否则直连目标主机。两种情况下 X.224/TLS 握手流程完全一致，
+// 因为网关对 RDP 协议是透明的 TCP 字节中继。
 func (sclient *SSHClient) rdpHandshake(x224Request []byte) ([]byte, [][]byte, *tls.Conn, error) {
-	addr := sclient.Addr()
+	// 选择实际连接目标：有网关走网关，否则直连
+	addr := sclient.RDPAddr()
+	displayAddr := sclient.Addr() // 用于日志和错误信息，显示原始目标
+
+	if sclient.UseRDPGateway() {
+		logRelayErr("rdp", displayAddr, fmt.Errorf("通过 RDP 网关 %s 转发", addr))
+	}
 
 	rawConn, err := dialRemote(addr, rdpDialTimeout)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("连接 RDP 服务器 %s 失败: %w", addr, err)
+		return nil, nil, nil, fmt.Errorf("连接 RDP 服务器 %s 失败: %w", displayAddr, err)
 	}
 
 	// X.224 阶段仍为明文，必须在 TLS 之前完成

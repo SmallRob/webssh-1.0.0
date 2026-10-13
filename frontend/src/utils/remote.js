@@ -82,7 +82,10 @@ export function encodeConnInfo (info) {
         port: Number(info.port) || 0,
         username: info.username || '',
         password: info.password || '',
-        domain: info.domain || ''
+        domain: info.domain || '',
+        // RDP 网关转发（可选）：通过网关中转连接内网 RDP
+        rdpGateway: info.rdpGateway || '',
+        rdpGatewayPort: Number(info.rdpGatewayPort) || 0
     }
     return b64EncodeUtf8(JSON.stringify(payload))
 }

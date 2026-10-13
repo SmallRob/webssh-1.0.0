@@ -143,11 +143,17 @@ export default {
         port: Number(sshInfo.port) || 3389,
         username: sshInfo.username || '',
         password: sshInfo.password || '',
-        domain: sshInfo.domain || ''
+        domain: sshInfo.domain || '',
+        rdpGateway: sshInfo.rdpGateway || '',
+        rdpGatewayPort: Number(sshInfo.rdpGatewayPort) || 0
       }
     },
     target () {
-      return targetAddr(this.connInfo.hostname, this.connInfo.port) || '未配置目标'
+      const addr = targetAddr(this.connInfo.hostname, this.connInfo.port)
+      if (this.connInfo.rdpGateway && this.connInfo.rdpGatewayPort) {
+        return addr + ' (via ' + targetAddr(this.connInfo.rdpGateway, this.connInfo.rdpGatewayPort) + ')'
+      }
+      return addr || '未配置目标'
     },
     connected () {
       return this.status === 'connected'
